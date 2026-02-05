@@ -110,6 +110,12 @@ private:
   QueueHandle_t _packet_queue_handle;
   TaskHandle_t _mqtt_task_handle;
   SemaphoreHandle_t _raw_data_mutex;  // Mutex for raw radio data
+  // PSRAM-backed task stack (plan §3); TCB kept in internal RAM
+  StackType_t* _mqtt_task_stack;     // nullptr if using dynamic task creation
+  StaticTask_t _mqtt_task_tcb;
+  // PSRAM-backed packet queue storage (plan §5)
+  uint8_t* _packet_queue_storage;    // nullptr if using dynamic queue
+  StaticQueue_t _packet_queue_struct;
   #else
   // Fallback to circular buffer for non-ESP32 platforms
   QueuedPacket _packet_queue[MAX_QUEUE_SIZE];
@@ -128,8 +134,9 @@ private:
   // Timezone handling
   Timezone* _timezone;
   
-  // Raw radio data storage
-  uint8_t _last_raw_data[256];
+  // Raw radio data storage (plan §6: PSRAM when BOARD_HAS_PSRAM)
+  static const size_t LAST_RAW_DATA_SIZE = 256;
+  uint8_t* _last_raw_data;
   int _last_raw_len;
   float _last_snr;
   float _last_rssi;
@@ -138,8 +145,9 @@ private:
   // Let's Mesh Analyzer support
   bool _analyzer_us_enabled;
   bool _analyzer_eu_enabled;
-  char _auth_token_us[768]; // JWT token for US server authentication (increased for owner/client fields)
-  char _auth_token_eu[768]; // JWT token for EU server authentication (increased for owner/client fields)
+  static const size_t AUTH_TOKEN_SIZE = 768;
+  char* _auth_token_us; // JWT token for US server (PSRAM when BOARD_HAS_PSRAM)
+  char* _auth_token_eu; // JWT token for EU server (PSRAM when BOARD_HAS_PSRAM)
   char _analyzer_username[70]; // Username in format v1_{UPPERCASE_PUBLIC_KEY}
   
   // Token expiration tracking

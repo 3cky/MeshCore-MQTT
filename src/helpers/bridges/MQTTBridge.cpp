@@ -46,6 +46,29 @@ static bool isWiFiConfigValid(const NodePrefs* prefs) {
 
 #ifdef WITH_MQTT_BRIDGE
 
+// PSRAM-aware allocation: prefer PSRAM on ESP32 when BOARD_HAS_PSRAM, fallback to internal heap or malloc.
+// Use psram_free() for any pointer returned by psram_malloc().
+static void* psram_malloc(size_t size) {
+  if (size == 0) return nullptr;
+#if defined(ESP_PLATFORM) && defined(BOARD_HAS_PSRAM)
+  void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+  if (p != nullptr) return p;
+  p = heap_caps_malloc(size, MALLOC_CAP_INTERNAL);
+  return p;
+#else
+  return malloc(size);
+#endif
+}
+
+static void psram_free(void* ptr) {
+  if (ptr == nullptr) return;
+#if defined(ESP_PLATFORM)
+  heap_caps_free(ptr);
+#else
+  free(ptr);
+#endif
+}
+
 // Time (millis()) when WiFi was last seen connected; 0 when disconnected. Used for get wifi.status uptime.
 static unsigned long s_wifi_connected_at = 0;
 
@@ -119,7 +142,7 @@ MQTTBridge::MQTTBridge(NodePrefs *prefs, mesh::PacketManager *mgr, mesh::RTCCloc
               _last_memory_check(0), _skipped_publishes(0),
               _last_no_broker_log(0), _last_config_warning(0), _dispatcher(nullptr), _radio(nullptr), _board(nullptr), _ms(nullptr)
 #ifdef ESP_PLATFORM
-              , _packet_queue_handle(nullptr), _mqtt_task_handle(nullptr), _raw_data_mutex(nullptr)
+              , _packet_queue_handle(nullptr), _mqtt_task_handle(nullptr), _raw_data_mutex(nullptr), _mqtt_task_stack(nullptr), _packet_queue_storage(nullptr)
 #else
               , _queue_head(0), _queue_tail(0)
 #endif
@@ -172,6 +195,15 @@ MQTTBridge::MQTTBridge(NodePrefs *prefs, mesh::PacketManager *mgr, mesh::RTCCloc
   _last_no_broker_log = 0;
   _last_analyzer_us_log = 0;
   _last_analyzer_eu_log = 0;
+  
+  // JWT token buffers: allocate in PSRAM when available (plan §2)
+  _auth_token_us = (char*)psram_malloc(AUTH_TOKEN_SIZE);
+  _auth_token_eu = (char*)psram_malloc(AUTH_TOKEN_SIZE);
+  if (_auth_token_us) _auth_token_us[0] = '\0';
+  if (_auth_token_eu) _auth_token_eu[0] = '\0';
+  
+  // Raw radio buffer in PSRAM when available (plan §6)
+  _last_raw_data = (uint8_t*)psram_malloc(LAST_RAW_DATA_SIZE);
   
   // Set default broker configuration
   setBrokerDefaults();
@@ -266,10 +298,25 @@ void MQTTBridge::begin() {
   MQTT_DEBUG_PRINTLN("Config: Origin=%s, IATA=%s, Device=%s", _origin, _iata, _device_id);
   
   #ifdef ESP_PLATFORM
-  // Create FreeRTOS queue for thread-safe packet queuing
-  _packet_queue_handle = xQueueCreate(MAX_QUEUE_SIZE, sizeof(QueuedPacket));
+  // Create FreeRTOS queue; use PSRAM storage when available (plan §5)
+  #ifdef BOARD_HAS_PSRAM
+  _packet_queue_storage = (uint8_t*)psram_malloc(MAX_QUEUE_SIZE * sizeof(QueuedPacket));
+  if (_packet_queue_storage != nullptr) {
+    _packet_queue_handle = xQueueCreateStatic(MAX_QUEUE_SIZE, sizeof(QueuedPacket), _packet_queue_storage, &_packet_queue_struct);
+  } else {
+    _packet_queue_handle = nullptr;
+  }
+  #else
+  _packet_queue_storage = nullptr;
+  _packet_queue_handle = nullptr;
+  #endif
+  if (_packet_queue_handle == nullptr) {
+    _packet_queue_handle = xQueueCreate(MAX_QUEUE_SIZE, sizeof(QueuedPacket));
+  }
   if (_packet_queue_handle == nullptr) {
     MQTT_DEBUG_PRINTLN("Failed to create packet queue!");
+    psram_free(_packet_queue_storage);
+    _packet_queue_storage = nullptr;
     return;
   }
   
@@ -331,20 +378,28 @@ void MQTTBridge::begin() {
   #define MQTT_TASK_PRIORITY 1
   #endif
   
-  BaseType_t task_result = xTaskCreatePinnedToCore(
-    mqttTask,           // Task function
-    "MQTTBridge",      // Task name
-    MQTT_TASK_STACK_SIZE,  // Stack size
-    this,               // Parameter (this pointer)
-    MQTT_TASK_PRIORITY, // Priority
-    &_mqtt_task_handle, // Task handle
-    MQTT_TASK_CORE      // Core ID (0)
+  // Task stack: use dynamic allocation (internal RAM). PSRAM stack was disabled because it
+  // causes resets on some boards (e.g. Heltec V4) when the task runs from PSRAM stack.
+  _mqtt_task_stack = nullptr;
+  _mqtt_task_handle = nullptr;
+  BaseType_t create_result = xTaskCreatePinnedToCore(
+    mqttTask,
+    "MQTTBridge",
+    MQTT_TASK_STACK_SIZE,
+    this,
+    MQTT_TASK_PRIORITY,
+    &_mqtt_task_handle,
+    MQTT_TASK_CORE
   );
-  
-  if (task_result != pdPASS) {
+  if (create_result != pdPASS) _mqtt_task_handle = nullptr;
+  if (_mqtt_task_handle == nullptr) {
     MQTT_DEBUG_PRINTLN("Failed to create MQTT task!");
+    psram_free(_mqtt_task_stack);
+    _mqtt_task_stack = nullptr;
     vQueueDelete(_packet_queue_handle);
     _packet_queue_handle = nullptr;
+    psram_free(_packet_queue_storage);
+    _packet_queue_storage = nullptr;
     vSemaphoreDelete(_raw_data_mutex);
     _raw_data_mutex = nullptr;
     if (_mqtt_client) {
@@ -414,6 +469,9 @@ void MQTTBridge::end() {
     // Give task time to clean up
     vTaskDelay(pdMS_TO_TICKS(100));
   }
+  // Free PSRAM task stack (plan §3)
+  psram_free(_mqtt_task_stack);
+  _mqtt_task_stack = nullptr;
   
   // Clean up queued packets from FreeRTOS queue
   // NOTE: Do NOT free queued.packet - the Dispatcher owns those packets.
@@ -427,6 +485,8 @@ void MQTTBridge::end() {
     vQueueDelete(_packet_queue_handle);
     _packet_queue_handle = nullptr;
   }
+  psram_free(_packet_queue_storage);
+  _packet_queue_storage = nullptr;
   
   // Delete mutex
   if (_raw_data_mutex != nullptr) {
@@ -482,6 +542,14 @@ void MQTTBridge::end() {
     delete _mqtt_client;
     _mqtt_client = nullptr;
   }
+  
+  // Free PSRAM-backed JWT token buffers (plan §2)
+  psram_free(_auth_token_us);
+  _auth_token_us = nullptr;
+  psram_free(_auth_token_eu);
+  _auth_token_eu = nullptr;
+  psram_free(_last_raw_data);
+  _last_raw_data = nullptr;
   
   _initialized = false;
   MQTT_DEBUG_PRINTLN("MQTT Bridge stopped");
@@ -1457,11 +1525,12 @@ bool MQTTBridge::publishStatus() {
     return false;  // No destinations available
   }
   
-  // Don't do aggressive pre-check like before - if packets are publishing successfully,
-  // the connection is likely fine. The actual publish attempt will handle connection issues.
-  
-  // Status messages with stats can be larger (~400-500 bytes), so increase buffer size
-  char json_buffer[768];  // Increased from 512 to accommodate stats object
+  // JSON buffer in PSRAM when available (plan §4)
+  static const size_t STATUS_JSON_BUFFER_SIZE = 768;
+  char* json_buffer = (char*)psram_malloc(STATUS_JSON_BUFFER_SIZE);
+  if (json_buffer == nullptr) {
+    return false;
+  }
   char origin_id[65];
   char timestamp[32];
   char radio_info[64];
@@ -1522,7 +1591,7 @@ bool MQTTBridge::publishStatus() {
     "online",
     timestamp,
     json_buffer,
-    sizeof(json_buffer),
+    STATUS_JSON_BUFFER_SIZE,
     battery_mv,
     uptime_secs,
     errors,
@@ -1634,10 +1703,12 @@ bool MQTTBridge::publishStatus() {
             // Return true if we successfully published to at least one destination
             if (published) {
               MQTT_DEBUG_PRINTLN("Status published");
+              psram_free(json_buffer);
               return true;
             }
           }
           
+          psram_free(json_buffer);
           return false;  // Failed to build or publish message
 }
 
@@ -1678,16 +1749,21 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
   }
   #endif
   
-  // Size-adaptive buffer: estimate needed size based on packet size
-  // Most packets are <100 bytes (need ~400 byte JSON), large packets need ~1500 bytes
-  // Optimized: Use 1024 bytes for most packets, only 2048 for very large packets (>200 bytes)
+  // JSON buffer: prefer PSRAM to reduce stack (plan §4); fallback to stack if allocation fails
+  static const size_t PUBLISH_JSON_BUFFER_SIZE = 2048;
+  char* json_buffer_psram = (char*)psram_malloc(PUBLISH_JSON_BUFFER_SIZE);
+  char json_buffer_stack[1024];
+  char json_buffer_large_stack[2048];
   int packet_size = packet->getRawLength();
-  size_t json_buffer_size = (packet_size > 200) ? 2048 : 1024;
-  // Allocate buffer based on actual needed size to save stack memory
-  char json_buffer[1024]; // Default to 1024, will handle large packets separately if needed
-  char json_buffer_large[2048]; // Only used for large packets
-  char* active_buffer = (packet_size > 200) ? json_buffer_large : json_buffer;
-  size_t active_buffer_size = (packet_size > 200) ? 2048 : 1024;
+  char* active_buffer;
+  size_t active_buffer_size;
+  if (json_buffer_psram != nullptr) {
+    active_buffer = json_buffer_psram;
+    active_buffer_size = PUBLISH_JSON_BUFFER_SIZE;
+  } else {
+    active_buffer = (packet_size > 200) ? json_buffer_large_stack : json_buffer_stack;
+    active_buffer_size = (packet_size > 200) ? 2048 : 1024;
+  }
   char origin_id[65];
   
   // Use actual device ID
@@ -1695,7 +1771,6 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
   origin_id[sizeof(origin_id) - 1] = '\0';
   
   // Build packet message using raw radio data if provided
-  // Use size-adaptive buffer size based on actual packet size
   int len;
   if (raw_data && raw_len > 0) {
     // Use provided raw radio data
@@ -1703,7 +1778,7 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
       raw_data, raw_len, packet, is_tx, _origin, origin_id, 
       snr, rssi, _timezone, active_buffer, active_buffer_size
     );
-  } else if (_last_raw_len > 0 && (millis() - _last_raw_timestamp) < 1000) {
+  } else if (_last_raw_data && _last_raw_len > 0 && (millis() - _last_raw_timestamp) < 1000) {
     // Fallback to global raw radio data (within 1 second of packet)
     len = MQTTMessageBuilder::buildPacketJSONFromRaw(
       _last_raw_data, _last_raw_len, packet, is_tx, _origin, origin_id, 
@@ -1787,10 +1862,10 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
     #ifdef ESP32
     size_t max_alloc = ESP.getMaxAllocHeap();
     if (max_alloc >= 60000) {  // Only publish to analyzer servers if memory is OK
-      publishToAnalyzerServers(topic, json_buffer, false);
+      publishToAnalyzerServers(topic, active_buffer, false);
     }
     #else
-    publishToAnalyzerServers(topic, json_buffer, false);
+    publishToAnalyzerServers(topic, active_buffer, false);
     #endif
   } else {
     // Debug: log when packet message building fails
@@ -1799,6 +1874,7 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
       MQTT_DEBUG_PRINTLN("Failed to build packet JSON for type=%d (len=%d), packet not published", packet_type, len);
     }
   }
+  psram_free(json_buffer_psram);
 }
 
 void MQTTBridge::publishRaw(mesh::Packet* packet) {
@@ -1816,12 +1892,20 @@ void MQTTBridge::publishRaw(mesh::Packet* packet) {
     return;
   }
   
-  // Size-adaptive buffer for raw JSON: use 1024 for most packets, 2048 for large ones
+  // JSON buffer: prefer PSRAM (plan §4); fallback to stack if allocation fails
+  char* json_buffer_psram = (char*)psram_malloc(2048);
+  char json_buffer_stack[1024];
+  char json_buffer_large_stack[2048];
   int packet_size = packet->getRawLength();
-  char json_buffer[1024]; // Default to 1024, will handle large packets separately if needed
-  char json_buffer_large[2048]; // Only used for large packets
-  char* active_buffer = (packet_size > 200) ? json_buffer_large : json_buffer;
-  size_t active_buffer_size = (packet_size > 200) ? 2048 : 1024;
+  char* active_buffer;
+  size_t active_buffer_size;
+  if (json_buffer_psram != nullptr) {
+    active_buffer = json_buffer_psram;
+    active_buffer_size = 2048;
+  } else {
+    active_buffer = (packet_size > 200) ? json_buffer_large_stack : json_buffer_stack;
+    active_buffer_size = (packet_size > 200) ? 2048 : 1024;
+  }
   char origin_id[65];
   
   // Use actual device ID
@@ -1900,6 +1984,7 @@ void MQTTBridge::publishRaw(mesh::Packet* packet) {
     publishToAnalyzerServers(topic, active_buffer, false);
     #endif
   }
+  psram_free(json_buffer_psram);
 }
 
 void MQTTBridge::queuePacket(mesh::Packet* packet, bool is_tx) {
@@ -1923,7 +2008,7 @@ void MQTTBridge::queuePacket(mesh::Packet* packet, bool is_tx) {
     if (xSemaphoreTake(_raw_data_mutex, 0) == pdTRUE) {
       unsigned long current_time = millis();
       if (_last_raw_len > 0 && (current_time - _last_raw_timestamp) < 1000) {
-        if (_last_raw_len <= sizeof(queued.raw_data)) {
+        if (_last_raw_data && _last_raw_len <= sizeof(queued.raw_data)) {
           memcpy(queued.raw_data, _last_raw_data, _last_raw_len);
           queued.raw_len = _last_raw_len;
           queued.snr = _last_snr;
@@ -1977,7 +2062,7 @@ void MQTTBridge::queuePacket(mesh::Packet* packet, bool is_tx) {
   queued.is_tx = is_tx;
   queued.has_raw_data = false;
   
-  if (!is_tx && _last_raw_len > 0 && (millis() - _last_raw_timestamp) < 1000) {
+  if (!is_tx && _last_raw_data && _last_raw_len > 0 && (millis() - _last_raw_timestamp) < 1000) {
     if (_last_raw_len <= sizeof(queued.raw_data)) {
       memcpy(queued.raw_data, _last_raw_data, _last_raw_len);
       queued.raw_len = _last_raw_len;
@@ -2082,7 +2167,7 @@ void MQTTBridge::setBuildDate(const char* build_date) {
 }
 
 void MQTTBridge::storeRawRadioData(const uint8_t* raw_data, int len, float snr, float rssi) {
-  if (len > 0 && len <= sizeof(_last_raw_data)) {
+  if (len > 0 && len <= LAST_RAW_DATA_SIZE && _last_raw_data) {
     #ifdef ESP_PLATFORM
     // Protect with mutex for thread-safe access
     if (_raw_data_mutex != nullptr && xSemaphoreTake(_raw_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -2124,10 +2209,10 @@ void MQTTBridge::setupAnalyzerServers() {
       if (createAuthToken()) {
         MQTT_DEBUG_PRINTLN("Created authentication token for analyzer servers");
         // Update client credentials with new tokens if clients exist
-        if (_analyzer_us_enabled && _analyzer_us_client && strlen(_auth_token_us) > 0) {
+        if (_analyzer_us_enabled && _analyzer_us_client && _auth_token_us && strlen(_auth_token_us) > 0) {
           _analyzer_us_client->setCredentials(_analyzer_username, _auth_token_us);
         }
-        if (_analyzer_eu_enabled && _analyzer_eu_client && strlen(_auth_token_eu) > 0) {
+        if (_analyzer_eu_enabled && _analyzer_eu_client && _auth_token_eu && strlen(_auth_token_eu) > 0) {
           _analyzer_eu_client->setCredentials(_analyzer_username, _auth_token_eu);
         }
       } else {
@@ -2183,11 +2268,11 @@ bool MQTTBridge::createAuthToken() {
   
   const char* email = (_prefs->mqtt_email[0] != '\0') ? _prefs->mqtt_email : nullptr;
   
-  // Create JWT token for US server
-  if (_analyzer_us_enabled) {
+  // Create JWT token for US server (only if buffer was allocated)
+  if (_analyzer_us_enabled && _auth_token_us) {
     if (JWTHelper::createAuthToken(
         *_identity, "mqtt-us-v1.letsmesh.net", 
-        0, expires_in, _auth_token_us, sizeof(_auth_token_us),
+        0, expires_in, _auth_token_us, AUTH_TOKEN_SIZE,
         owner_key, client_version, email)) {
       us_token_created = true;
       _token_us_expires_at = time_synced ? (current_time + expires_in) : 0;
@@ -2197,11 +2282,11 @@ bool MQTTBridge::createAuthToken() {
     }
   }
   
-  // Create JWT token for EU server
-  if (_analyzer_eu_enabled) {
+  // Create JWT token for EU server (only if buffer was allocated)
+  if (_analyzer_eu_enabled && _auth_token_eu) {
     if (JWTHelper::createAuthToken(
         *_identity, "mqtt-eu-v1.letsmesh.net", 
-        0, expires_in, _auth_token_eu, sizeof(_auth_token_eu),
+        0, expires_in, _auth_token_eu, AUTH_TOKEN_SIZE,
         owner_key, client_version, email)) {
       eu_token_created = true;
       _token_eu_expires_at = time_synced ? (current_time + expires_in) : 0;
@@ -2333,7 +2418,7 @@ void MQTTBridge::setupAnalyzerClients() {
     });
 
     _analyzer_us_client->setServer("wss://mqtt-us-v1.letsmesh.net:443/mqtt");
-    _analyzer_us_client->setCredentials(_analyzer_username, _auth_token_us);
+    if (_auth_token_us) _analyzer_us_client->setCredentials(_analyzer_username, _auth_token_us);
     _analyzer_us_client->setCACert(GTS_ROOT_R4);
 
     if (WiFi.status() == WL_CONNECTED && _ntp_synced) {
@@ -2382,7 +2467,7 @@ void MQTTBridge::setupAnalyzerClients() {
     });
 
     _analyzer_eu_client->setServer("wss://mqtt-eu-v1.letsmesh.net:443/mqtt");
-    _analyzer_eu_client->setCredentials(_analyzer_username, _auth_token_eu);
+    if (_auth_token_eu) _analyzer_eu_client->setCredentials(_analyzer_username, _auth_token_eu);
     _analyzer_eu_client->setCACert(GTS_ROOT_R4);
 
     if (WiFi.status() == WL_CONNECTED && _ntp_synced) {
@@ -2457,9 +2542,12 @@ void MQTTBridge::publishStatusToAnalyzerClient(PsychicMqttClient* client, const 
   char status_topic[128];
   snprintf(status_topic, sizeof(status_topic), "meshcore/%s/%s/status", _iata, _device_id);
   
-  // Build proper status message using MQTTMessageBuilder
-  // Status messages with stats can be larger (~400-500 bytes)
-  char json_buffer[768];  // Increased from 512 to accommodate stats object
+  // JSON buffer in PSRAM when available (plan §4)
+  static const size_t ANALYZER_STATUS_JSON_SIZE = 768;
+  char* json_buffer = (char*)psram_malloc(ANALYZER_STATUS_JSON_SIZE);
+  if (json_buffer == nullptr) {
+    return;
+  }
   char origin_id[65];
   char timestamp[32];
   char radio_info[64];
@@ -2520,7 +2608,7 @@ void MQTTBridge::publishStatusToAnalyzerClient(PsychicMqttClient* client, const 
     "online",
     timestamp,
     json_buffer,
-    sizeof(json_buffer),
+    ANALYZER_STATUS_JSON_SIZE,
     battery_mv,
     uptime_secs,
     errors,
@@ -2537,6 +2625,7 @@ void MQTTBridge::publishStatusToAnalyzerClient(PsychicMqttClient* client, const 
       MQTT_DEBUG_PRINTLN("Status publish to %s failed", server_name);
     }
   }
+  psram_free(json_buffer);
 }
 
 void MQTTBridge::maintainAnalyzerConnections() {
@@ -2556,15 +2645,15 @@ void MQTTBridge::maintainAnalyzerConnections() {
   
   // Create JWT tokens if they don't exist yet and conditions are met
   if ((_analyzer_us_enabled || _analyzer_eu_enabled) && 
-      (strlen(_auth_token_us) == 0 && strlen(_auth_token_eu) == 0)) {
+      ((!_auth_token_us || strlen(_auth_token_us) == 0) && (!_auth_token_eu || strlen(_auth_token_eu) == 0))) {
     if (createAuthToken()) {
-      if (_analyzer_us_enabled && _analyzer_us_client && strlen(_auth_token_us) > 0) {
+      if (_analyzer_us_enabled && _analyzer_us_client && _auth_token_us && strlen(_auth_token_us) > 0) {
         _analyzer_us_client->setCredentials(_analyzer_username, _auth_token_us);
         if (!_analyzer_us_client->connected()) {
           _analyzer_us_client->connect();
         }
       }
-      if (_analyzer_eu_enabled && _analyzer_eu_client && strlen(_auth_token_eu) > 0) {
+      if (_analyzer_eu_enabled && _analyzer_eu_client && _auth_token_eu && strlen(_auth_token_eu) > 0) {
         _analyzer_eu_client->setCredentials(_analyzer_username, _auth_token_eu);
         if (!_analyzer_eu_client->connected()) {
           _analyzer_eu_client->connect();
@@ -2639,10 +2728,10 @@ void MQTTBridge::maintainAnalyzerConnections() {
       // Store old expiration time before renewing (to check if we need to disconnect)
       unsigned long old_token_expires_at = _token_us_expires_at;
       
-      // Renew the token
-      if (JWTHelper::createAuthToken(
+      // Renew the token (only if buffer was allocated)
+      if (_auth_token_us && JWTHelper::createAuthToken(
           *_identity, "mqtt-us-v1.letsmesh.net", 
-          0, 86400, _auth_token_us, sizeof(_auth_token_us),
+          0, 86400, _auth_token_us, AUTH_TOKEN_SIZE,
           owner_key, client_version, email)) {
         unsigned long expires_in = 86400; // 24 hours
         _token_us_expires_at = time_synced ? (current_time + expires_in) : 0;
@@ -2737,10 +2826,10 @@ void MQTTBridge::maintainAnalyzerConnections() {
       // Store old expiration time before renewing (to check if we need to disconnect)
       unsigned long old_token_expires_at = _token_eu_expires_at;
       
-      // Renew the token
-      if (JWTHelper::createAuthToken(
+      // Renew the token (only if buffer was allocated)
+      if (_auth_token_eu && JWTHelper::createAuthToken(
           *_identity, "mqtt-eu-v1.letsmesh.net", 
-          0, 86400, _auth_token_eu, sizeof(_auth_token_eu),
+          0, 86400, _auth_token_eu, AUTH_TOKEN_SIZE,
           owner_key, client_version, email)) {
         unsigned long expires_in = 86400; // 24 hours
         _token_eu_expires_at = time_synced ? (current_time + expires_in) : 0;
@@ -2878,26 +2967,26 @@ void MQTTBridge::syncTimeWithNTP() {
       unsigned long expires_in = 86400; // 24 hours
       
       // If tokens were created before NTP sync (expires_at == 0), set expiration times now
-      if (_analyzer_us_enabled && _token_us_expires_at == 0 && strlen(_auth_token_us) > 0) {
+      if (_analyzer_us_enabled && _token_us_expires_at == 0 && _auth_token_us && strlen(_auth_token_us) > 0) {
         _token_us_expires_at = current_time + expires_in;
         MQTT_DEBUG_PRINTLN("US token expiration set after NTP sync: %lu", _token_us_expires_at);
       }
       
-      if (_analyzer_eu_enabled && _token_eu_expires_at == 0 && strlen(_auth_token_eu) > 0) {
+      if (_analyzer_eu_enabled && _token_eu_expires_at == 0 && _auth_token_eu && strlen(_auth_token_eu) > 0) {
         _token_eu_expires_at = current_time + expires_in;
       }
       
       // If tokens don't exist yet (deferred during begin()), create them now
       if ((_analyzer_us_enabled || _analyzer_eu_enabled) && 
-          (strlen(_auth_token_us) == 0 && strlen(_auth_token_eu) == 0)) {
+          ((!_auth_token_us || strlen(_auth_token_us) == 0) && (!_auth_token_eu || strlen(_auth_token_eu) == 0))) {
         if (createAuthToken()) {
-          if (_analyzer_us_enabled && _analyzer_us_client && strlen(_auth_token_us) > 0) {
+          if (_analyzer_us_enabled && _analyzer_us_client && _auth_token_us && strlen(_auth_token_us) > 0) {
             _analyzer_us_client->setCredentials(_analyzer_username, _auth_token_us);
             if (!_analyzer_us_client->connected()) {
               _analyzer_us_client->connect();
             }
           }
-          if (_analyzer_eu_enabled && _analyzer_eu_client && strlen(_auth_token_eu) > 0) {
+          if (_analyzer_eu_enabled && _analyzer_eu_client && _auth_token_eu && strlen(_auth_token_eu) > 0) {
             _analyzer_eu_client->setCredentials(_analyzer_username, _auth_token_eu);
             if (!_analyzer_eu_client->connected()) {
               _analyzer_eu_client->connect();
