@@ -4,7 +4,7 @@ This document provides a comprehensive guide for communicating with MeshCore dev
 
 ## ⚠️ Important Security Note
 
-**All secrets, hashes, and cryptographic values shown in this guide are EXAMPLE VALUES ONLY and are NOT real secrets.** 
+**All secrets, hashes, and cryptographic values shown in this guide are EXAMPLE VALUES ONLY and are NOT real secrets.**
 
 - The secret `9b647d242d6e1c5883fde0c5cf5c4c5e` used in examples is a made-up example value
 - All hex values, public keys, and hashes in examples are for demonstration purposes only
@@ -76,6 +76,7 @@ When writing commands to the TX characteristic, specify the write type:
 - **Write without Response**: Faster but no acknowledgment
 
 **Platform-specific**:
+
 - **Android**: Use `BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT` or `WRITE_TYPE_NO_RESPONSE`
 - **iOS**: Use `CBCharacteristicWriteType.withResponse` or `.withoutResponse`
 - **Python (bleak)**: Use `write_gatt_char()` with `response=True` or `False`
@@ -123,6 +124,7 @@ The default BLE MTU is 23 bytes (20 bytes payload). For larger commands like `SE
    - After enabling notifications: Wait 200ms before sending commands
 
 **Example Flow**:
+
 ```python
 # 1. Connect and discover
 await connect_to_device(device)
@@ -152,36 +154,37 @@ For reliable operation, implement a command queue:
    - Only send next command after receiving response or timeout
 
 2. **Implementation**:
+
 ```python
 class CommandQueue:
     def __init__(self):
         self.queue = []
         self.waiting_for_response = False
         self.current_command = None
-    
+
     async def send_command(self, command, expected_response_type, timeout=5.0):
         if self.waiting_for_response:
             # Queue the command
             self.queue.append((command, expected_response_type, timeout))
             return
-        
+
         self.waiting_for_response = True
         self.current_command = (command, expected_response_type, timeout)
-        
+
         # Send command
         await write_to_tx_characteristic(command)
-        
+
         # Wait for response
         response = await wait_for_response(expected_response_type, timeout)
-        
+
         self.waiting_for_response = False
         self.current_command = None
-        
+
         # Process next queued command
         if self.queue:
             next_cmd, next_type, next_timeout = self.queue.pop(0)
             await self.send_command(next_cmd, next_type, next_timeout)
-        
+
         return response
 ```
 
@@ -204,6 +207,7 @@ The MeshCore protocol uses a binary format with the following structure:
 ### Packet Structure
 
 Most packets follow this format:
+
 ```
 [Packet Type (1 byte)] [Data (variable length)]
 ```
@@ -219,6 +223,7 @@ The first byte indicates the packet type (see [Response Parsing](#response-parsi
 **Purpose**: Initialize communication with the device. Must be sent first after connection.
 
 **Command Format**:
+
 ```
 Byte 0: 0x01
 Byte 1: 0x03
@@ -226,6 +231,7 @@ Bytes 2-10: "mccli" (ASCII, null-padded to 9 bytes)
 ```
 
 **Example** (hex):
+
 ```
 01 03 6d 63 63 6c 69 00 00 00 00
 ```
@@ -239,12 +245,14 @@ Bytes 2-10: "mccli" (ASCII, null-padded to 9 bytes)
 **Purpose**: Query device information.
 
 **Command Format**:
+
 ```
 Byte 0: 0x16
 Byte 1: 0x03
 ```
 
 **Example** (hex):
+
 ```
 16 03
 ```
@@ -258,12 +266,14 @@ Byte 1: 0x03
 **Purpose**: Retrieve information about a specific channel.
 
 **Command Format**:
+
 ```
 Byte 0: 0x1F
 Byte 1: Channel Index (0-7)
 ```
 
 **Example** (get channel 1):
+
 ```
 1F 01
 ```
@@ -279,6 +289,7 @@ Byte 1: Channel Index (0-7)
 **Purpose**: Create or update a channel on the device.
 
 **Command Format**:
+
 ```
 Byte 0: 0x20
 Byte 1: Channel Index (0-7)
@@ -289,19 +300,23 @@ Bytes 34-65: Secret (32 bytes, see [Secret Generation](#secret-generation))
 **Total Length**: 66 bytes
 
 **Channel Index**:
+
 - Index 0: Reserved for public channels (no secret)
 - Indices 1-7: Available for private channels
 
 **Channel Name**:
+
 - UTF-8 encoded
 - Maximum 32 bytes
 - Padded with null bytes (0x00) if shorter
 
 **Secret Field** (32 bytes):
+
 - For **private channels**: 32-byte secret (see [Secret Generation](#secret-generation))
 - For **public channels**: All zeros (0x00)
 
 **Example** (create channel "YourChannelName" at index 1 with secret):
+
 ```
 20 01 53 4D 53 00 00 ... (name padded to 32 bytes)
     [32 bytes of secret]
@@ -316,6 +331,7 @@ Bytes 34-65: Secret (32 bytes, see [Secret Generation](#secret-generation))
 **Purpose**: Send a text message to a channel.
 
 **Command Format**:
+
 ```
 Byte 0: 0x03
 Byte 1: 0x00
@@ -327,6 +343,7 @@ Bytes 7+: Message Text (UTF-8, variable length)
 **Timestamp**: Unix timestamp in seconds (32-bit unsigned integer, little-endian)
 
 **Example** (send "Hello" to channel 1 at timestamp 1234567890):
+
 ```
 03 00 01 D2 02 96 49 48 65 6C 6C 6F
 ```
@@ -340,16 +357,19 @@ Bytes 7+: Message Text (UTF-8, variable length)
 **Purpose**: Request the next queued message from the device.
 
 **Command Format**:
+
 ```
 Byte 0: 0x0A
 ```
 
 **Example** (hex):
+
 ```
 0A
 ```
 
-**Response**: 
+**Response**:
+
 - `PACKET_CHANNEL_MSG_RECV` (0x08) or `PACKET_CHANNEL_MSG_RECV_V3` (0x11) for channel messages
 - `PACKET_CONTACT_MSG_RECV` (0x07) or `PACKET_CONTACT_MSG_RECV_V3` (0x10) for contact messages
 - `PACKET_NO_MORE_MSGS` (0x0A) if no messages available
@@ -363,11 +383,13 @@ Byte 0: 0x0A
 **Purpose**: Query device battery level.
 
 **Command Format**:
+
 ```
 Byte 0: 0x14
 ```
 
 **Example** (hex):
+
 ```
 14
 ```
@@ -422,6 +444,7 @@ Byte 0: 0x14
 For private channels, generate a cryptographically secure 16-byte secret:
 
 **Pseudocode**:
+
 ```python
 import secrets
 
@@ -439,11 +462,13 @@ secret_hex = secret_bytes.hex()  # 32 hex characters
 When sending the secret to the device via `SET_CHANNEL`, the 16-byte secret must be expanded to 32 bytes:
 
 **Process**:
+
 1. Take the 16-byte secret
 2. Compute SHA-512 hash: `hash = SHA-512(secret)`
 3. Use the first 32 bytes of the hash as the secret field in the command
 
 **Pseudocode**:
+
 ```python
 import hashlib
 
@@ -459,15 +484,18 @@ This matches MeshCore's ED25519 key expansion method.
 QR codes for sharing channel secrets use the following format:
 
 **URL Scheme**:
+
 ```
 meshcore://channel/add?name=<ChannelName>&secret=<32HexChars>
 ```
 
 **Parameters**:
+
 - `name`: Channel name (URL-encoded if needed)
 - `secret`: 32-character hexadecimal representation of the 16-byte secret
 
 **Example** (using example secret - NOT a real secret):
+
 ```
 meshcore://channel/add?name=YourChannelName&secret=9b647d242d6e1c5883fde0c5cf5c4c5e
 ```
@@ -475,23 +503,28 @@ meshcore://channel/add?name=YourChannelName&secret=9b647d242d6e1c5883fde0c5cf5c4
 **Alternative Formats** (for backward compatibility):
 
 1. **JSON Format**:
+
 ```json
 {
   "name": "YourChannelName",
   "secret": "9b647d242d6e1c5883fde0c5cf5c4c5e"
 }
 ```
-*Note: The secret value above is an example only - generate your own secure random secret.*
+
+_Note: The secret value above is an example only - generate your own secure random secret._
 
 2. **Plain Hex** (32 hex characters):
+
 ```
 9b647d242d6e1c5883fde0c5cf5c4c5e
 ```
-*Note: This is an example hex value - always generate your own cryptographically secure random secret.*
+
+_Note: This is an example hex value - always generate your own cryptographically secure random secret._
 
 ### QR Code Generation
 
 **Steps**:
+
 1. Generate or use existing 16-byte secret
 2. Convert to 32-character hex string (lowercase)
 3. URL-encode the channel name
@@ -499,6 +532,7 @@ meshcore://channel/add?name=YourChannelName&secret=9b647d242d6e1c5883fde0c5cf5c4
 5. Generate QR code from the URL string
 
 **Example** (Python with `qrcode` library):
+
 ```python
 import qrcode
 from urllib.parse import quote
@@ -567,6 +601,7 @@ Messages are received via the RX characteristic (notifications). The device send
 ### Contact Message Format
 
 **Standard Format** (`PACKET_CONTACT_MSG_RECV`, 0x07):
+
 ```
 Byte 0: 0x07 (packet type)
 Bytes 1-6: Public Key Prefix (6 bytes, hex)
@@ -578,6 +613,7 @@ Bytes 17+: Message Text (UTF-8)
 ```
 
 **V3 Format** (`PACKET_CONTACT_MSG_RECV_V3`, 0x10):
+
 ```
 Byte 0: 0x10 (packet type)
 Byte 1: SNR (signed byte, multiplied by 4)
@@ -591,33 +627,34 @@ Bytes 20+: Message Text (UTF-8)
 ```
 
 **Parsing Pseudocode**:
+
 ```python
 def parse_contact_message(data):
     packet_type = data[0]
     offset = 1
-    
+
     # Check for V3 format
     if packet_type == 0x10:  # V3
         snr_byte = data[offset]
         snr = ((snr_byte if snr_byte < 128 else snr_byte - 256) / 4.0)
         offset += 3  # Skip SNR + reserved
-    
+
     pubkey_prefix = data[offset:offset+6].hex()
     offset += 6
-    
+
     path_len = data[offset]
     txt_type = data[offset + 1]
     offset += 2
-    
+
     timestamp = int.from_bytes(data[offset:offset+4], 'little')
     offset += 4
-    
+
     # If txt_type == 2, skip 4-byte signature
     if txt_type == 2:
         offset += 4
-    
+
     message = data[offset:].decode('utf-8')
-    
+
     return {
         'pubkey_prefix': pubkey_prefix,
         'path_len': path_len,
@@ -631,6 +668,7 @@ def parse_contact_message(data):
 ### Channel Message Format
 
 **Standard Format** (`PACKET_CHANNEL_MSG_RECV`, 0x08):
+
 ```
 Byte 0: 0x08 (packet type)
 Byte 1: Channel Index (0-7)
@@ -641,6 +679,7 @@ Bytes 8+: Message Text (UTF-8)
 ```
 
 **V3 Format** (`PACKET_CHANNEL_MSG_RECV_V3`, 0x11):
+
 ```
 Byte 0: 0x11 (packet type)
 Byte 1: SNR (signed byte, multiplied by 4)
@@ -653,23 +692,24 @@ Bytes 11+: Message Text (UTF-8)
 ```
 
 **Parsing Pseudocode**:
+
 ```python
 def parse_channel_message(data):
     packet_type = data[0]
     offset = 1
-    
+
     # Check for V3 format
     if packet_type == 0x11:  # V3
         snr_byte = data[offset]
         snr = ((snr_byte if snr_byte < 128 else snr_byte - 256) / 4.0)
         offset += 3  # Skip SNR + reserved
-    
+
     channel_idx = data[offset]
     path_len = data[offset + 1]
     txt_type = data[offset + 2]
     timestamp = int.from_bytes(data[offset+3:offset+7], 'little')
     message = data[offset+7:].decode('utf-8')
-    
+
     return {
         'channel_idx': channel_idx,
         'timestamp': timestamp,
@@ -682,7 +722,8 @@ def parse_channel_message(data):
 
 Use the `SEND_CHANNEL_MESSAGE` command (see [Commands](#commands)).
 
-**Important**: 
+**Important**:
+
 - Messages are limited to 133 characters per MeshCore specification
 - Long messages should be split into chunks
 - Include a chunk indicator (e.g., "[1/3] message text")
@@ -693,44 +734,47 @@ Use the `SEND_CHANNEL_MESSAGE` command (see [Commands](#commands)).
 
 ### Packet Types
 
-| Value | Name | Description |
-|-------|------|-------------|
-| 0x00 | PACKET_OK | Command succeeded |
-| 0x01 | PACKET_ERROR | Command failed |
-| 0x02 | PACKET_CONTACT_START | Start of contact list |
-| 0x03 | PACKET_CONTACT | Contact information |
-| 0x04 | PACKET_CONTACT_END | End of contact list |
-| 0x05 | PACKET_SELF_INFO | Device self-information |
-| 0x06 | PACKET_MSG_SENT | Message sent confirmation |
-| 0x07 | PACKET_CONTACT_MSG_RECV | Contact message (standard) |
-| 0x08 | PACKET_CHANNEL_MSG_RECV | Channel message (standard) |
-| 0x09 | PACKET_CURRENT_TIME | Current time response |
-| 0x0A | PACKET_NO_MORE_MSGS | No more messages available |
-| 0x0C | PACKET_BATTERY | Battery level |
-| 0x0D | PACKET_DEVICE_INFO | Device information |
-| 0x10 | PACKET_CONTACT_MSG_RECV_V3 | Contact message (V3 with SNR) |
-| 0x11 | PACKET_CHANNEL_MSG_RECV_V3 | Channel message (V3 with SNR) |
-| 0x12 | PACKET_CHANNEL_INFO | Channel information |
-| 0x80 | PACKET_ADVERTISEMENT | Advertisement packet |
-| 0x82 | PACKET_ACK | Acknowledgment |
-| 0x83 | PACKET_MESSAGES_WAITING | Messages waiting notification |
-| 0x88 | PACKET_LOG_DATA | RF log data (can be ignored) |
+| Value | Name                       | Description                   |
+| ----- | -------------------------- | ----------------------------- |
+| 0x00  | PACKET_OK                  | Command succeeded             |
+| 0x01  | PACKET_ERROR               | Command failed                |
+| 0x02  | PACKET_CONTACT_START       | Start of contact list         |
+| 0x03  | PACKET_CONTACT             | Contact information           |
+| 0x04  | PACKET_CONTACT_END         | End of contact list           |
+| 0x05  | PACKET_SELF_INFO           | Device self-information       |
+| 0x06  | PACKET_MSG_SENT            | Message sent confirmation     |
+| 0x07  | PACKET_CONTACT_MSG_RECV    | Contact message (standard)    |
+| 0x08  | PACKET_CHANNEL_MSG_RECV    | Channel message (standard)    |
+| 0x09  | PACKET_CURRENT_TIME        | Current time response         |
+| 0x0A  | PACKET_NO_MORE_MSGS        | No more messages available    |
+| 0x0C  | PACKET_BATTERY             | Battery level                 |
+| 0x0D  | PACKET_DEVICE_INFO         | Device information            |
+| 0x10  | PACKET_CONTACT_MSG_RECV_V3 | Contact message (V3 with SNR) |
+| 0x11  | PACKET_CHANNEL_MSG_RECV_V3 | Channel message (V3 with SNR) |
+| 0x12  | PACKET_CHANNEL_INFO        | Channel information           |
+| 0x80  | PACKET_ADVERTISEMENT       | Advertisement packet          |
+| 0x82  | PACKET_ACK                 | Acknowledgment                |
+| 0x83  | PACKET_MESSAGES_WAITING    | Messages waiting notification |
+| 0x88  | PACKET_LOG_DATA            | RF log data (can be ignored)  |
 
 ### Parsing Responses
 
 **PACKET_OK** (0x00):
+
 ```
 Byte 0: 0x00
 Bytes 1-4: Optional value (32-bit little-endian integer)
 ```
 
 **PACKET_ERROR** (0x01):
+
 ```
 Byte 0: 0x01
 Byte 1: Error code (optional)
 ```
 
 **PACKET_CHANNEL_INFO** (0x12):
+
 ```
 Byte 0: 0x12
 Byte 1: Channel Index
@@ -741,6 +785,7 @@ Bytes 34-65: Secret (32 bytes, but device typically only returns 20 bytes total)
 **Note**: The device may not return the full 66-byte packet. Parse what is available. The secret field is typically not returned for security reasons.
 
 **PACKET_DEVICE_INFO** (0x0D):
+
 ```
 Byte 0: 0x0D
 Byte 1: Firmware Version (uint8)
@@ -756,14 +801,15 @@ Bytes 60-79: Version (20 bytes, UTF-8, null-padded)
 ```
 
 **Parsing Pseudocode**:
+
 ```python
 def parse_device_info(data):
     if len(data) < 2:
         return None
-    
+
     fw_ver = data[1]
     info = {'fw_ver': fw_ver}
-    
+
     if fw_ver >= 3 and len(data) >= 80:
         info['max_contacts'] = data[2] * 2
         info['max_channels'] = data[3]
@@ -771,11 +817,12 @@ def parse_device_info(data):
         info['fw_build'] = data[8:20].decode('utf-8').rstrip('\x00').strip()
         info['model'] = data[20:60].decode('utf-8').rstrip('\x00').strip()
         info['ver'] = data[60:80].decode('utf-8').rstrip('\x00').strip()
-    
+
     return info
 ```
 
 **PACKET_BATTERY** (0x0C):
+
 ```
 Byte 0: 0x0C
 Bytes 1-2: Battery Level (16-bit little-endian, percentage 0-100)
@@ -786,24 +833,26 @@ Bytes 7-10: Total Storage (32-bit little-endian, KB)
 ```
 
 **Parsing Pseudocode**:
+
 ```python
 def parse_battery(data):
     if len(data) < 3:
         return None
-    
+
     level = int.from_bytes(data[1:3], 'little')
     info = {'level': level}
-    
+
     if len(data) > 3:
         used_kb = int.from_bytes(data[3:7], 'little')
         total_kb = int.from_bytes(data[7:11], 'little')
         info['used_kb'] = used_kb
         info['total_kb'] = total_kb
-    
+
     return info
 ```
 
 **PACKET_SELF_INFO** (0x05):
+
 ```
 Byte 0: 0x05
 Byte 1: Advertisement Type
@@ -824,11 +873,12 @@ Bytes 58+: Device Name (UTF-8, variable length, null-terminated)
 ```
 
 **Parsing Pseudocode**:
+
 ```python
 def parse_self_info(data):
     if len(data) < 36:
         return None
-    
+
     offset = 1
     info = {
         'adv_type': data[offset],
@@ -837,13 +887,13 @@ def parse_self_info(data):
         'public_key': data[offset + 3:offset + 35].hex()
     }
     offset += 35
-    
+
     lat = int.from_bytes(data[offset:offset+4], 'little') / 1e6
     lon = int.from_bytes(data[offset+4:offset+8], 'little') / 1e6
     info['adv_lat'] = lat
     info['adv_lon'] = lon
     offset += 8
-    
+
     info['multi_acks'] = data[offset]
     info['adv_loc_policy'] = data[offset + 1]
     telemetry_mode = data[offset + 2]
@@ -852,7 +902,7 @@ def parse_self_info(data):
     info['telemetry_mode_base'] = telemetry_mode & 0b11
     info['manual_add_contacts'] = data[offset + 3] > 0
     offset += 4
-    
+
     freq = int.from_bytes(data[offset:offset+4], 'little') / 1000.0
     bw = int.from_bytes(data[offset+4:offset+8], 'little') / 1000.0
     info['radio_freq'] = freq
@@ -860,15 +910,16 @@ def parse_self_info(data):
     info['radio_sf'] = data[offset + 8]
     info['radio_cr'] = data[offset + 9]
     offset += 10
-    
+
     if offset < len(data):
         name_bytes = data[offset:]
         info['name'] = name_bytes.decode('utf-8').rstrip('\x00').strip()
-    
+
     return info
 ```
 
 **PACKET_MSG_SENT** (0x06):
+
 ```
 Byte 0: 0x06
 Byte 1: Message Type
@@ -877,6 +928,7 @@ Bytes 6-9: Suggested Timeout (32-bit little-endian, seconds)
 ```
 
 **PACKET_ACK** (0x82):
+
 ```
 Byte 0: 0x82
 Bytes 1-6: ACK Code (6 bytes, hex)
@@ -886,18 +938,18 @@ Bytes 1-6: ACK Code (6 bytes, hex)
 
 **PACKET_ERROR** (0x01) may include an error code in byte 1:
 
-| Error Code | Description |
-|------------|-------------|
-| 0x00 | Generic error (no specific code) |
-| 0x01 | Invalid command |
-| 0x02 | Invalid parameter |
-| 0x03 | Channel not found |
-| 0x04 | Channel already exists |
-| 0x05 | Channel index out of range |
-| 0x06 | Secret mismatch |
-| 0x07 | Message too long |
-| 0x08 | Device busy |
-| 0x09 | Not enough storage |
+| Error Code | Description                      |
+| ---------- | -------------------------------- |
+| 0x00       | Generic error (no specific code) |
+| 0x01       | Invalid command                  |
+| 0x02       | Invalid parameter                |
+| 0x03       | Channel not found                |
+| 0x04       | Channel already exists           |
+| 0x05       | Channel index out of range       |
+| 0x06       | Secret mismatch                  |
+| 0x07       | Message too long                 |
+| 0x08       | Device busy                      |
+| 0x09       | Not enough storage               |
 
 **Note**: Error codes may vary by firmware version. Always check byte 1 of `PACKET_ERROR` response.
 
@@ -906,22 +958,23 @@ Bytes 1-6: ACK Code (6 bytes, hex)
 BLE notifications may arrive in chunks, especially for larger packets. Implement buffering:
 
 **Implementation**:
+
 ```python
 class PacketBuffer:
     def __init__(self):
         self.buffer = bytearray()
         self.expected_length = None
-    
+
     def add_data(self, data):
         self.buffer.extend(data)
-        
+
         # Check if we have a complete packet
         if len(self.buffer) >= 1:
             packet_type = self.buffer[0]
-            
+
             # Determine expected length based on packet type
             expected = self.get_expected_length(packet_type)
-            
+
             if expected is not None and len(self.buffer) >= expected:
                 # Complete packet
                 packet = bytes(self.buffer[:expected])
@@ -932,9 +985,9 @@ class PacketBuffer:
                 # Some packets have minimum length requirements
                 if self.can_parse_partial(packet_type):
                     return self.try_parse_partial()
-        
+
         return None  # Incomplete packet
-    
+
     def get_expected_length(self, packet_type):
         # Fixed-length packets
         fixed_lengths = {
@@ -944,11 +997,11 @@ class PacketBuffer:
             0x14: 3,  # PACKET_BATTERY (minimum)
         }
         return fixed_lengths.get(packet_type)
-    
+
     def can_parse_partial(self, packet_type):
         # Some packets can be parsed partially
         return packet_type in [0x12, 0x08, 0x11, 0x07, 0x10, 0x05, 0x0D]
-    
+
     def try_parse_partial(self):
         # Try to parse with available data
         # Return packet if successfully parsed, None otherwise
@@ -957,6 +1010,7 @@ class PacketBuffer:
 ```
 
 **Usage**:
+
 ```python
 buffer = PacketBuffer()
 
@@ -1072,7 +1126,7 @@ response = wait_for_response(PACKET_MSG_SENT)
 ```python
 def on_notification_received(data):
     packet_type = data[0]
-    
+
     if packet_type == PACKET_CHANNEL_MSG_RECV or packet_type == PACKET_CHANNEL_MSG_RECV_V3:
         message = parse_channel_message(data)
         handle_channel_message(message)
@@ -1143,21 +1197,25 @@ img.save("channel_qr.png")
 ## Platform-Specific Notes
 
 ### Android
+
 - Use `BluetoothGatt` API
 - Request `BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN` permissions (Android 12+)
 - Enable notifications by writing to descriptor `0x2902` with value `0x01` or `0x02`
 
 ### iOS
+
 - Use `CoreBluetooth` framework
 - Implement `CBPeripheralDelegate` for notifications
 - Request Bluetooth permissions in Info.plist
 
 ### Python
+
 - Use `bleak` library for cross-platform BLE support
 - Handle async/await for BLE operations
 - Use `asyncio` for command-response patterns
 
 ### JavaScript/Node.js
+
 - Use `noble` or `@abandonware/noble` for BLE
 - Handle callbacks or promises for async operations
 - Use `Buffer` for binary data manipulation
@@ -1167,21 +1225,25 @@ img.save("channel_qr.png")
 ## Troubleshooting
 
 ### Connection Issues
+
 - **Device not found**: Ensure device is powered on and advertising
 - **Connection timeout**: Check Bluetooth permissions and device proximity
 - **GATT errors**: Ensure proper service/characteristic discovery
 
 ### Command Issues
+
 - **No response**: Verify notifications are enabled, check connection state
 - **Error responses**: Verify command format, check channel index validity
 - **Timeout**: Increase timeout value or check device responsiveness
 
 ### Message Issues
+
 - **Messages not received**: Poll `GET_MESSAGE` command periodically
 - **Duplicate messages**: Implement message deduplication using timestamps/hashes
 - **Message truncation**: Split long messages into chunks
 
 ### Secret/Channel Issues
+
 - **Secret not working**: Verify secret expansion (SHA-512) is correct
 - **Channel not found**: Query channels after connection to discover existing channels
 - **Channel index 0**: Migrate to index 1-7 for private channels
@@ -1198,4 +1260,3 @@ img.save("channel_qr.png")
 
 **Last Updated**: 2025-01-01
 **Protocol Version**: Based on MeshCore v1.36.0+
-

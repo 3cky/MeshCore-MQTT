@@ -1,9 +1,9 @@
 # Packet Structure
 
 | Field           | Size (bytes)                     | Description                                               |
-|-----------------|----------------------------------|-----------------------------------------------------------|
+| --------------- | -------------------------------- | --------------------------------------------------------- |
 | header          | 1                                | Contains routing type, payload type, and payload version. |
-| transport_codes | 4 (optional)                     | 2x 16-bit transport codes (if ROUTE_TYPE_TRANSPORT_*)     |
+| transport_codes | 4 (optional)                     | 2x 16-bit transport codes (if ROUTE*TYPE_TRANSPORT*\*)    |
 | path_len        | 1                                | Length of the path field in bytes.                        |
 | path            | up to 64 (`MAX_PATH_SIZE`)       | Stores the routing path if applicable.                    |
 | payload         | up to 184 (`MAX_PACKET_PAYLOAD`) | The actual data being transmitted.                        |
@@ -14,16 +14,16 @@ Note: see the [payloads doc](./payloads.md) for more information about the conte
 
 bit 0 means the lowest bit (1s place)
 
-| Bits  | Mask   | Field           | Description                                   |
-|-------|--------|-----------------|-----------------------------------------------|
-| 0-1   | `0x03` | Route Type      | Flood, Direct, Reserved - see below.          |
-| 2-5   | `0x3C` | Payload Type    | Request, Response, ACK, etc. - see below.     |
-| 6-7   | `0xC0` | Payload Version | Versioning of the payload format - see below. |
+| Bits | Mask   | Field           | Description                                   |
+| ---- | ------ | --------------- | --------------------------------------------- |
+| 0-1  | `0x03` | Route Type      | Flood, Direct, Reserved - see below.          |
+| 2-5  | `0x3C` | Payload Type    | Request, Response, ACK, etc. - see below.     |
+| 6-7  | `0xC0` | Payload Version | Versioning of the payload format - see below. |
 
 ## Route Type Values
 
 | Value  | Name                          | Description                          |
-|--------|-------------------------------|--------------------------------------|
+| ------ | ----------------------------- | ------------------------------------ |
 | `0x00` | `ROUTE_TYPE_TRANSPORT_FLOOD`  | Flood routing mode + transport codes |
 | `0x01` | `ROUTE_TYPE_FLOOD`            | Flood routing mode (builds up path). |
 | `0x02` | `ROUTE_TYPE_DIRECT`           | Direct route (path is supplied).     |
@@ -32,7 +32,7 @@ bit 0 means the lowest bit (1s place)
 ## Payload Type Values
 
 | Value  | Name                      | Description                                   |
-|--------|---------------------------|-----------------------------------------------|
+| ------ | ------------------------- | --------------------------------------------- |
 | `0x00` | `PAYLOAD_TYPE_REQ`        | Request (destination/source hashes + MAC).    |
 | `0x01` | `PAYLOAD_TYPE_RESPONSE`   | Response to REQ or ANON_REQ.                  |
 | `0x02` | `PAYLOAD_TYPE_TXT_MSG`    | Plain text message.                           |
@@ -53,7 +53,7 @@ bit 0 means the lowest bit (1s place)
 ## Payload Version Values
 
 | Value  | Version | Description                                       |
-|--------|---------|---------------------------------------------------|
+| ------ | ------- | ------------------------------------------------- |
 | `0x00` | 1       | 1-byte src/dest hashes, 2-byte MAC.               |
 | `0x01` | 2       | Future version (e.g., 2-byte hashes, 4-byte MAC). |
 | `0x02` | 3       | Future version.                                   |
