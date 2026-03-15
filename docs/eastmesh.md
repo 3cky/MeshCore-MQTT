@@ -13,12 +13,41 @@ This guide covers:
 - verifying that the device is connected
 - working around a known first-flash config issue
 
+For broader MQTT bridge behavior and command reference, see [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md).
+
 ## What You Need
 
 - a Heltec V3 or Heltec V4 board
 - a USB data cable
 - WiFi credentials for the network the device will use
 - this repo checked out locally
+
+## Scope
+
+This guide is written for Heltec V3 and Heltec V4 because those are the known working EastMesh setups.
+
+All preconfigured `*_repeater_observer_mqtt` PlatformIO environments now include the EastMesh MQTT defaults.
+
+Only Heltec V3 and Heltec V4 have been fully tested with EastMesh so far.
+
+The same overall process should also work on the other boards listed below, but those EastMesh configurations have not been fully validated yet.
+
+Preconfigured observer-MQTT environments currently exist for:
+
+- `Heltec_v3_repeater_observer_mqtt`
+- `heltec_v4_repeater_observer_mqtt`
+- `Heltec_T190_repeater_observer_mqtt`
+- `LilyGo_T3S3_sx1262_repeater_observer_mqtt`
+- `Tbeam_SX1262_repeater_observer_mqtt`
+- `Tbeam_SX1276_repeater_observer_mqtt`
+- `T_Beam_S3_Supreme_SX1262_repeater_observer_mqtt`
+- `Station_G2_repeater_observer_mqtt`
+- `Xiao_S3_WIO_repeater_observer_mqtt`
+
+CI note:
+
+- the current PR build matrix covers standard repeater builds on several platforms
+- the observer-MQTT environments are not currently built in CI
 
 ## Platform Notes
 
@@ -137,7 +166,7 @@ Replace `<PORT>` with the value from `poetry run pio device list`.
 
 ## Built-In EastMesh Defaults
 
-Both observer builds include these EastMesh MQTT defaults:
+All preconfigured observer-MQTT builds include these EastMesh MQTT defaults:
 
 - `MQTT_SERVER="wss://mqtt2.eastmesh.au"`
 - `MQTT_PORT=443`
@@ -170,6 +199,8 @@ Use either:
 
 The commands below work from either interface unless otherwise noted.
 
+For the general console flow, see the quick start section in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#quick-start-guide).
+
 ## Step 7: Configure WiFi
 
 Set your WiFi credentials:
@@ -193,6 +224,8 @@ If you want better WiFi performance and do not care about power saving, try:
 ```text
 set wifi.powersave none
 ```
+
+Additional WiFi command reference is documented in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#step-3-configure-wifi-connection).
 
 ## Step 8: Verify or Repair MQTT Settings
 
@@ -232,6 +265,8 @@ get mqtt.password
 get mqtt.config.valid
 ```
 
+For the broader MQTT command set, see [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#step-6-configure-mqtt-settings).
+
 ## Step 9: Optional Analyzer Settings
 
 You can also publish to the Let's Mesh analyzers:
@@ -255,6 +290,8 @@ For example:
 ```text
 set mqtt.analyzer.us off
 ```
+
+Background on the Let's Mesh analyzer integration is in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#lets-mesh-analyzer-integration).
 
 ## Step 10: Reboot
 
@@ -291,3 +328,5 @@ If the device flashes successfully but does not connect:
 3. Confirm validity with `get mqtt.config.valid`
 4. Re-apply the EastMesh values manually if needed
 5. Run `reboot`
+
+For additional troubleshooting context, see [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md).
