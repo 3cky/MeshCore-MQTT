@@ -112,9 +112,23 @@ Verify it:
 poetry --version
 ```
 
-## Step 2: Install Repo Dependencies
+## Step 2: Clone This Repo and Install Dependencies
 
-From the repo root:
+If you do not already have a local copy of this repo, clone it first.
+
+The simplest path is to install Git and clone the repo locally.
+
+If you expect to do more custom builds and flashing, it is also worth setting this up in VS Code with PlatformIO, but that is not required for this guide.
+
+Example Git workflow:
+
+```bash
+git clone https://github.com/xJARiD/MeshCore.git
+cd MeshCore
+poetry install
+```
+
+If you already cloned the repo, just open a terminal in the repo root and run:
 
 ```bash
 poetry install
@@ -122,9 +136,20 @@ poetry install
 
 This installs the Python build tooling used by MeshCore, including PlatformIO.
 
+On Windows, one simple way to open a terminal in the repo root is:
+
+1. Open the local repo folder in Explorer
+2. Shift + right-click in the folder
+3. Select `Open in Terminal`
+
 ## Step 3: Plug In the Device
 
 Connect the Heltec board over USB.
+
+You can either:
+
+- hold `BOOT` while connecting the board to USB, or
+- connect it normally and only use `BOOT` + `RESET` if upload does not start
 
 If the board does not automatically enter upload mode during flashing, manually put it into the ESP32 bootloader:
 
@@ -133,6 +158,11 @@ If the board does not automatically enter upload mode during flashing, manually 
 3. Release `BOOT` when upload starts
 
 If normal upload works for your board, you do not need to do this manually.
+
+Note:
+
+- if the board enters upload mode after you first connected it, the serial port may change
+- if upload fails, run `poetry run pio device list` again and confirm the current port before retrying
 
 ## Step 4: Find the Serial Port
 
@@ -182,28 +212,46 @@ Additional notes:
 - `MQTT_DEBUG`, `MESH_PACKET_LOGGING`, and `MESH_DEBUG` are disabled by default
 - do **not** set `mqtt.username` for EastMesh
 
-## Known Issue: First Flash Does Not Always Apply MQTT Defaults
+## Step 6: Configure the Repeater Basics
 
-There is a current bug where the `platformio.ini` MQTT values for Heltec V3 and V4 do not always apply correctly on the first flash.
+After flashing, do the normal repeater setup first.
 
-Because of that, after flashing you should always connect to the device console and verify the live values with `get` commands.
+Using WebFlasher:
 
-If the values are missing or wrong, set them manually and reboot.
+- `https://flasher.meshcore.co.uk/`
+- `https://flasher.meshcoreaus.org/`
 
-## Step 6: Open the Device Console
+Use `Configure via USB`, or open `config.meshcore.dev` directly in a Chromium-based browser.
+
+Then:
+
+1. Connect to the node and select the correct serial port
+2. Set the node name
+3. Set the admin password
+4. Select preset `Australia Narrow`
+5. Save the configuration
+
+Recommended:
+
+- keep a companion node nearby and powered on
+- after saving, use `advert` so your companion picks up the new MQTT node in contacts
+- that makes it easier to remote-administer the node later
+
+## Step 7: Open the Device Console
 
 Use either:
 
 - serial console at `115200` baud, or
 - the repeater console from another MeshCore device
+- the `Console` tab in WebFlasher, using the correct serial port
 
 The commands below work from either interface unless otherwise noted.
 
 For the general console flow, see the quick start section in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#quick-start-guide).
 
-## Step 7: Configure WiFi
+## Step 8: Configure WiFi
 
-Set your WiFi credentials:
+From the console, set your WiFi credentials by entering each of these commands:
 
 ```text
 set wifi.ssid YourWiFiNetwork
@@ -227,7 +275,15 @@ set wifi.powersave none
 
 Additional WiFi command reference is documented in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#step-3-configure-wifi-connection).
 
-## Step 8: Verify or Repair MQTT Settings
+## Known Issue: First Flash Does Not Always Apply MQTT Defaults
+
+There is a current bug where the `platformio.ini` MQTT values for Heltec V3 and V4 do not always apply correctly on the first flash.
+
+Because of that, after WiFi is configured you should always verify the live MQTT values with `get` commands.
+
+If the values are missing or wrong, set them manually and reboot.
+
+## Step 9: Verify or Repair MQTT Settings
 
 Check the live MQTT settings:
 
@@ -267,7 +323,7 @@ get mqtt.config.valid
 
 For the broader MQTT command set, see [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#step-6-configure-mqtt-settings).
 
-## Step 9: Optional Analyzer Settings
+## Step 10: Optional Analyzer Settings
 
 You can also publish to the Let's Mesh analyzers:
 
@@ -293,7 +349,7 @@ set mqtt.analyzer.us off
 
 Background on the Let's Mesh analyzer integration is in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#lets-mesh-analyzer-integration).
 
-## Step 10: Reboot
+## Step 11: Reboot
 
 After changing WiFi or MQTT settings, reboot the device:
 
@@ -301,7 +357,11 @@ After changing WiFi or MQTT settings, reboot the device:
 reboot
 ```
 
-## Step 11: Confirm It Connected
+Once rebooted, it can be worth re-running the `get` checks from the WiFi and MQTT steps above.
+
+This is not strictly required, but it is useful as a sanity check.
+
+## Step 12: Confirm It Connected
 
 Expected connection logs include:
 
@@ -313,6 +373,8 @@ If you enabled analyzer brokers, you may also see additional broker connection m
 Observer visibility can be confirmed on:
 
 - `https://obs.eastmesh.au`
+
+If the setup was successful, you should see your new node appear in the list of observers on EastMesh.
 
 Current observer credentials:
 
@@ -330,3 +392,10 @@ If the device flashes successfully but does not connect:
 5. Run `reboot`
 
 For additional troubleshooting context, see [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md).
+
+## Unofficial References
+
+Additional community-maintained documentation is also available at these unofficial wikis:
+
+- `https://wiki.meshcoreaus.org/`
+- `https://wiki.eastmesh.au/`
