@@ -398,5 +398,16 @@ For additional troubleshooting context, see [MQTT Bridge Implementation](./MQTT_
 Additional community-maintained documentation is also available at these unofficial wikis:
 
 - `https://wiki.meshcoreaus.org/`
+
+### South Australia/Tasmania/Victoria
+
 - `https://wiki.eastmesh.au/`
+
+### New South Whales
+
 - `https://nswmesh.au/`
+- `https://github.com/nswmesh/`
+
+### Brisbane
+
+- `https://wiki.mbug.com.au/en/Meshcore/Settings`
