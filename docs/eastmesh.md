@@ -440,13 +440,12 @@ For additional troubleshooting context, see [MQTT Bridge Implementation](./MQTT_
 
 Additional community-maintained documentation is also available at these unofficial wikis:
 
-- `https://wiki.meshcoreaus.org/`
-
-### South Australia/Tasmania/Victoria
+### ACT/NSW/QLD/SA/TAS/VIC
 
 - `https://wiki.eastmesh.au/`
+- `https://wiki.meshcoreaus.org/`
 
-### New South Whales
+### Sydney
 
 - `https://nswmesh.au/`
 - `https://github.com/nswmesh/`
