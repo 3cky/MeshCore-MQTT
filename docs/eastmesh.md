@@ -194,6 +194,49 @@ poetry run pio run -e heltec_v4_repeater_observer_mqtt -t upload --upload-port <
 
 Replace `<PORT>` with the value from `poetry run pio device list`.
 
+## Optional: Build `.bin` Files for Web Flasher
+
+This is mainly for macOS/Linux users using `build.sh`.
+
+Set a firmware version first:
+
+```bash
+export FIRMWARE_VERSION=1.14.0 #or whatever the latest firmware version is
+```
+
+Then build the observer-MQTT target you want:
+
+```bash
+sh build.sh build-firmware Heltec_v3_repeater_observer_mqtt
+```
+
+or:
+
+```bash
+sh build.sh build-firmware heltec_v4_repeater_observer_mqtt
+```
+
+You can also substitute any other preconfigured `*_repeater_observer_mqtt` environment listed earlier in this guide.
+
+The generated files will appear in the `out` folder.
+
+For ESP32 targets, `build.sh` produces:
+
+- `<env>-<version>-<sha>.bin`
+- `<env>-<version>-<sha>-merged.bin`
+
+You can then open:
+
+- `https://flasher.meshcore.co.uk/`
+- `https://flasher.meshcoreaus.org/`
+
+and flash using `Custom firmware`.
+
+Use:
+
+- the normal `.bin` file for a standard flash
+- the `-merged.bin` file when doing an erase + flash
+
 ## Built-In EastMesh Defaults
 
 All preconfigured observer-MQTT builds include these EastMesh MQTT defaults:
