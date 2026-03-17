@@ -390,6 +390,21 @@ For example:
 set mqtt.analyzer.us off
 ```
 
+Visibility note:
+
+- if your repeater does not have nearby neighbours, or there is no other MQTT-connected repeater nearby to hear and forward your packets, switch the bridge source to TX so the repeater uplinks its own transmitted adverts
+- this helps isolated repeaters show up on both Let's Mesh and EastMesh
+
+Commands:
+
+```text
+set bridge.source tx
+set mqtt.tx on
+reboot
+```
+
+If you do have nearby mesh neighbours or another MQTT-connected repeater hearing you reliably, keep the default RX-oriented setup to avoid uplinking your own transmitted packets unnecessarily.
+
 Background on the Let's Mesh analyzer integration is in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#lets-mesh-analyzer-integration).
 
 ## Step 11: Reboot
