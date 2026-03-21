@@ -2,12 +2,15 @@
 
 #include "MeshCore.h"
 #include "helpers/bridges/BridgeBase.h"
+
+#ifdef WITH_MQTT_BRIDGE
 #include <PsychicMqttClient.h>
 #include <WiFi.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Timezone.h>
 #include "helpers/JWTHelper.h"
+#endif
 
 #ifdef ESP_PLATFORM
 #include <freertos/FreeRTOS.h>

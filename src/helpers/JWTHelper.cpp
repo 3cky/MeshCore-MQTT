@@ -2,8 +2,8 @@
 #include <ArduinoJson.h>
 #include <SHA256.h>
 #include <string.h>
+#include <time.h>
 #include "ed_25519.h"
-#include "mbedtls/base64.h"
 #include "Utils.h"
 
 #if !defined(JWT_DEBUG)
@@ -18,6 +18,15 @@ static JWTHelperSilentSerial jwtSilentSerial;
 
 // Base64 URL encoding table (without padding)
 static const char base64url_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+static int8_t base64UrlDecodeChar(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '-' || c == '+') return 62;
+  if (c == '_' || c == '/') return 63;
+  return -1;
+}
 
 bool JWTHelper::createAuthToken(
   const mesh::LocalIdentity& identity,
@@ -162,34 +171,46 @@ size_t JWTHelper::base64UrlEncode(const uint8_t* input, size_t inputLen, char* o
     Serial.printf("JWTHelper: base64UrlEncode invalid parameters\n");
     return 0;
   }
-  
-  size_t outlen = 0;
-  int ret = mbedtls_base64_encode((unsigned char*)output, outputSize - 1, &outlen, input, inputLen);
-  
-  if (ret != 0) {
-    Serial.printf("JWTHelper: mbedtls_base64_encode failed with error: %d\n", ret);
+
+  size_t required = (inputLen / 3) * 4;
+  if (inputLen % 3 == 1) {
+    required += 2;
+  } else if (inputLen % 3 == 2) {
+    required += 3;
+  }
+  if (required + 1 > outputSize) {
+    Serial.printf("JWTHelper: base64UrlEncode buffer too small: %d > %d\n", (int)(required + 1), (int)outputSize);
     return 0;
   }
-  
-  output[outlen] = '\0';
-  Serial.printf("JWTHelper: mbedtls_base64_encode result: %s (outlen: %d)\n", output, (int)outlen);
-  
-  // Convert to base64 URL format in-place (replace + with -, / with _, remove padding =)
-  for (size_t i = 0; i < outlen; i++) {
-    if (output[i] == '+') {
-      output[i] = '-';
-    } else if (output[i] == '/') {
-      output[i] = '_';
-    }
+
+  size_t in = 0;
+  size_t out = 0;
+  while (in + 3 <= inputLen) {
+    uint32_t chunk = ((uint32_t)input[in] << 16) |
+                     ((uint32_t)input[in + 1] << 8) |
+                     (uint32_t)input[in + 2];
+    output[out++] = base64url_chars[(chunk >> 18) & 0x3F];
+    output[out++] = base64url_chars[(chunk >> 12) & 0x3F];
+    output[out++] = base64url_chars[(chunk >> 6) & 0x3F];
+    output[out++] = base64url_chars[chunk & 0x3F];
+    in += 3;
   }
-  
-  // Remove padding '=' characters
-  while (outlen > 0 && output[outlen-1] == '=') {
-    outlen--;
+
+  if (inputLen - in == 1) {
+    uint32_t chunk = (uint32_t)input[in] << 16;
+    output[out++] = base64url_chars[(chunk >> 18) & 0x3F];
+    output[out++] = base64url_chars[(chunk >> 12) & 0x3F];
+  } else if (inputLen - in == 2) {
+    uint32_t chunk = ((uint32_t)input[in] << 16) |
+                     ((uint32_t)input[in + 1] << 8);
+    output[out++] = base64url_chars[(chunk >> 18) & 0x3F];
+    output[out++] = base64url_chars[(chunk >> 12) & 0x3F];
+    output[out++] = base64url_chars[(chunk >> 6) & 0x3F];
   }
-  output[outlen] = '\0';
-  Serial.printf("JWTHelper: base64UrlEncode completed, outputLen: %d\n", (int)outlen);
-  return outlen;
+
+  output[out] = '\0';
+  Serial.printf("JWTHelper: base64UrlEncode completed, outputLen: %d\n", (int)out);
+  return out;
 }
 
 size_t JWTHelper::createHeader(char* output, size_t outputSize) {
@@ -283,53 +304,60 @@ size_t JWTHelper::base64UrlDecode(const char* input, uint8_t* output, size_t out
   if (!input || !output || outputSize == 0) {
     return 0;
   }
-  
-  // Convert base64url to base64 (replace - with +, _ with /)
+
   size_t inputLen = strlen(input);
   if (inputLen == 0) {
     return 0;
   }
-  
-  // Use heap allocation for large buffer to avoid stack overflow in MQTT task
-  // MQTT task has limited stack space, so we must use heap for large buffers
-  char* base64Input = (char*)malloc(inputLen + 4 + 1); // +4 for padding, +1 for null terminator
-  if (!base64Input) {
-    Serial.printf("JWTHelper::base64UrlDecode: Failed to allocate buffer\n");
-    return 0;
-  }
-  
-  strncpy(base64Input, input, inputLen);
-  base64Input[inputLen] = '\0';
-  
-  // Add padding if needed
-  size_t padding = (4 - (inputLen % 4)) % 4;
-  for (size_t i = 0; i < padding; i++) {
-    base64Input[inputLen + i] = '=';
-  }
-  base64Input[inputLen + padding] = '\0';
-  
-  // Convert base64url to base64
-  for (size_t i = 0; i < inputLen; i++) {
-    if (base64Input[i] == '-') {
-      base64Input[i] = '+';
-    } else if (base64Input[i] == '_') {
-      base64Input[i] = '/';
+
+  size_t out = 0;
+  size_t i = 0;
+  while (i < inputLen) {
+    int8_t vals[4] = {-1, -1, -1, -1};
+    size_t count = 0;
+
+    while (count < 4 && i < inputLen) {
+      char c = input[i++];
+      if (c == '=') {
+        break;
+      }
+      int8_t v = base64UrlDecodeChar(c);
+      if (v < 0) {
+        Serial.printf("JWTHelper::base64UrlDecode: invalid character '%c'\n", c);
+        return 0;
+      }
+      vals[count++] = v;
+    }
+
+    if (count < 2) {
+      Serial.printf("JWTHelper::base64UrlDecode: truncated input\n");
+      return 0;
+    }
+
+    if (out + count - 1 > outputSize) {
+      Serial.printf("JWTHelper::base64UrlDecode: output buffer too small\n");
+      return 0;
+    }
+
+    uint32_t chunk = ((uint32_t)vals[0] << 18) | ((uint32_t)vals[1] << 12);
+    output[out++] = (chunk >> 16) & 0xFF;
+
+    if (count >= 3) {
+      chunk |= (uint32_t)vals[2] << 6;
+      output[out++] = (chunk >> 8) & 0xFF;
+    }
+
+    if (count == 4) {
+      chunk |= (uint32_t)vals[3];
+      output[out++] = chunk & 0xFF;
+    }
+
+    if (count < 4) {
+      break;
     }
   }
-  
-  size_t outlen = 0;
-  int ret = mbedtls_base64_decode(output, outputSize, &outlen, (const unsigned char*)base64Input, strlen(base64Input));
-  
-  // Free the buffer before returning
-  free(base64Input);
-  
-  if (ret != 0) {
-    Serial.printf("JWTHelper::base64UrlDecode: mbedtls_base64_decode failed with code %d (inputLen=%u)\n", 
-                  ret, inputLen);
-    return 0;
-  }
-  
-  return outlen;
+
+  return out;
 }
 
 bool JWTHelper::verifyToken(

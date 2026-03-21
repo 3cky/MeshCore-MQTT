@@ -530,9 +530,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       DateTime dt = DateTime(local_now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d %s", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year(), getTimezoneLabel(_prefs));
     } else if (memcmp(command, "memory", 6) == 0) {
+#ifdef ESP_PLATFORM
       sprintf(reply, "Free: %d, Min: %d, Max: %d, Queue: %d", 
               ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), 
               _callbacks->getQueueSize());
+#else
+      sprintf(reply, "Queue: %d", _callbacks->getQueueSize());
+#endif
     } else if (memcmp(command, "start ota", 9) == 0) {
       if (!_board->startOTAUpdate(_prefs->node_name, reply)) {
         strcpy(reply, "Error");
