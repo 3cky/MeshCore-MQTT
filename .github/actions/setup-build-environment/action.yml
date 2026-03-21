@@ -21,7 +21,7 @@ runs:
       run: |
         pip install --upgrade platformio
 
-    # a git tag of "room-server-v1.2.3" should set "v1.2.3" as GIT_TAG_VERSION
+    # a git tag of "v1.2.3" should set "v1.2.3" as GIT_TAG_VERSION
     - name: Extract Version from Git Tag
       shell: bash
       run: |

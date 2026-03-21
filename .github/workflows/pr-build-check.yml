@@ -4,19 +4,19 @@ on:
   pull_request:
     branches: [main, dev]
     paths:
-      - 'src/**'
-      - 'examples/**'
-      - 'variants/**'
-      - 'platformio.ini'
-      - '.github/workflows/pr-build-check.yml'
+      - "src/**"
+      - "examples/**"
+      - "variants/**"
+      - "platformio.ini"
+      - ".github/workflows/pr-build-check.yml"
   push:
     branches: [main, dev]
     paths:
-      - 'src/**'
-      - 'examples/**'
-      - 'variants/**'
-      - 'platformio.ini'
-      - '.github/workflows/pr-build-check.yml'
+      - "src/**"
+      - "examples/**"
+      - "variants/**"
+      - "platformio.ini"
+      - ".github/workflows/pr-build-check.yml"
 
 jobs:
   build:
@@ -29,6 +29,9 @@ jobs:
           - Heltec_v3_companion_radio_ble
           - Heltec_v3_repeater
           - Heltec_v3_room_server
+          - heltec_v4_companion_radio_ble
+          - heltec_v4_repeater
+          - heltec_v4_room_server
           # nRF52
           - RAK_4631_companion_radio_ble
           - RAK_4631_repeater

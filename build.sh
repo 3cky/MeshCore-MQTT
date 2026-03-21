@@ -188,16 +188,13 @@ build_all_firmwares_by_suffix() {
 
 build_repeater_firmwares() {
 
-#  # build specific repeater firmwares
-#  build_firmware "Heltec_v2_repeater"
-#  build_firmware "Heltec_v3_repeater"
-#  build_firmware "Xiao_C3_Repeater_sx1262"
-#  build_firmware "Xiao_S3_WIO_Repeater"
-#  build_firmware "LilyGo_T3S3_sx1262_Repeater"
-#  build_firmware "RAK_4631_Repeater"
+#  # build specific repeater observer MQTT firmwares
+#  build_firmware "Heltec_v3_repeater_observer_mqtt"
+#  build_firmware "heltec_v4_repeater_observer_mqtt"
+#  build_firmware "Xiao_S3_WIO_repeater_observer_mqtt"
 
-  # build all repeater firmwares
-  build_all_firmwares_by_suffix "_repeater"
+  # build all repeater observer MQTT firmwares
+  build_all_firmwares_by_suffix "_repeater_observer_mqtt"
 
 }
 
