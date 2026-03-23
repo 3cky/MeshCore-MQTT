@@ -1,9 +1,12 @@
-# EastMesh MQTT Setup (Heltec V3/V4)
+# EastMesh MQTT Setup
 
-Beginner-friendly setup guide for the EastMesh MQTT observer firmware on:
+Beginner-friendly setup guide for the EastMesh MQTT observer firmware.
 
-- `Heltec_v3_repeater_observer_mqtt`
-- `heltec_v4_repeater_observer_mqtt`
+## Quickstart
+
+If you just want to get going with a prebuilt firmware image, start here:
+
+- `https://github.com/xJARiD/MeshCore/releases`
 
 This guide covers:
 
@@ -17,20 +20,16 @@ For broader MQTT bridge behavior and command reference, see [MQTT Bridge Impleme
 
 ## What You Need
 
-- a Heltec V3 or Heltec V4 board
+- a supported board for one of the preconfigured `*_repeater_observer_mqtt` environments
 - a USB data cable
 - WiFi credentials for the network the device will use
 - this repo checked out locally
 
 ## Scope
 
-This guide is written for Heltec V3 and Heltec V4 because those are the known working EastMesh setups.
-
 All preconfigured `*_repeater_observer_mqtt` PlatformIO environments now include the EastMesh MQTT defaults.
 
-Only Heltec V3 and Heltec V4 have been fully tested with EastMesh so far.
-
-The same overall process should also work on the other boards listed below, but those EastMesh configurations have not been fully validated yet.
+This guide uses Heltec V3 and Heltec V4 as the primary examples because they are the most common beginner boards, but EastMesh observer-MQTT setups have also been tested on `Xiao_S3_WIO_repeater_observer_mqtt`.
 
 Preconfigured observer-MQTT environments currently exist for:
 
@@ -144,7 +143,7 @@ On Windows, one simple way to open a terminal in the repo root is:
 
 ## Step 3: Plug In the Device
 
-Connect the Heltec board over USB.
+Connect the board over USB.
 
 You can either:
 
@@ -180,6 +179,14 @@ Typical port names:
 
 ## Step 5: Flash the Firmware
 
+Heltec V3 and Heltec V4 are shown below because they are the most common beginner boards.
+
+Use this command format for any of the preconfigured observer-MQTT environments listed under `Scope`:
+
+```bash
+poetry run pio run -e <BOARD> -t upload --upload-port <PORT>
+```
+
 ### Heltec V3
 
 ```bash
@@ -194,9 +201,13 @@ poetry run pio run -e heltec_v4_repeater_observer_mqtt -t upload --upload-port <
 
 Replace `<PORT>` with the value from `poetry run pio device list`.
 
-## Optional: Build `.bin` Files for Web Flasher
+## Optional: Use Prebuilt or Build Your Own `.bin` Files
 
-This is mainly for macOS/Linux users using `build.sh`.
+Prebuilt `.bin` files for the preconfigured observer-MQTT environments are published here:
+
+- `https://github.com/xJARiD/MeshCore/releases`
+
+If you want to build your own instead, this is mainly for macOS/Linux users using `build.sh`.
 
 Set a firmware version first:
 
