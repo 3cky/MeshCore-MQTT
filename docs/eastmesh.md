@@ -352,14 +352,14 @@ get mqtt.config.valid
 
 For EastMesh, the expected values are:
 
-- `mqtt.server` -> `wss://mqtt2.eastmesh.au:443`
+- `mqtt.server` -> `wss://mqtt2.eastmesh.au`
 - `mqtt.port` -> `443`
 - `mqtt.password` -> `jwt`
 
 If any of those are wrong or blank, set them manually:
 
 ```text
-set mqtt.server wss://mqtt2.eastmesh.au:443
+set mqtt.server wss://mqtt2.eastmesh.au
 set mqtt.port 443
 set mqtt.password jwt
 ```
