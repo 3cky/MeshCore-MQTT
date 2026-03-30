@@ -1284,13 +1284,27 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
                 savePrefs();
                 strcpy(reply, "OK");
               } else if (memcmp(config, "mqtt.analyzer.us ", 17) == 0) {
-                _prefs->mqtt_analyzer_us_enabled = memcmp(&config[17], "on", 2) == 0;
+                bool enable = memcmp(&config[17], "on", 2) == 0;
+                bool changed = (_prefs->mqtt_analyzer_us_enabled != enable);
+                _prefs->mqtt_analyzer_us_enabled = enable;
                 savePrefs();
-                strcpy(reply, "OK");
+                if (changed && _prefs->bridge_enabled) {
+                  _callbacks->restartBridge();
+                  sprintf(reply, "OK - analyzer.us %s, bridge restarted", enable ? "on" : "off");
+                } else {
+                  strcpy(reply, "OK");
+                }
               } else if (memcmp(config, "mqtt.analyzer.eu ", 17) == 0) {
-                _prefs->mqtt_analyzer_eu_enabled = memcmp(&config[17], "on", 2) == 0;
+                bool enable = memcmp(&config[17], "on", 2) == 0;
+                bool changed = (_prefs->mqtt_analyzer_eu_enabled != enable);
+                _prefs->mqtt_analyzer_eu_enabled = enable;
                 savePrefs();
-                strcpy(reply, "OK");
+                if (changed && _prefs->bridge_enabled) {
+                  _callbacks->restartBridge();
+                  sprintf(reply, "OK - analyzer.eu %s, bridge restarted", enable ? "on" : "off");
+                } else {
+                  strcpy(reply, "OK");
+                }
               } else if (memcmp(config, "mqtt.owner ", 11) == 0) {
                 // Validate that it's a valid hex string of the correct length (64 hex chars = 32 bytes)
                 const char* owner_key = &config[11];
