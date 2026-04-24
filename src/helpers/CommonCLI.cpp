@@ -26,8 +26,8 @@ static size_t getMQTTFieldsSize(const NodePrefs* prefs) {
          sizeof(prefs->timezone_offset) + sizeof(prefs->mqtt_server) +
          sizeof(prefs->mqtt_port) + sizeof(prefs->mqtt_username) +
          sizeof(prefs->mqtt_password) + sizeof(prefs->mqtt_analyzer_us_enabled) +
-         sizeof(prefs->mqtt_analyzer_eu_enabled) + sizeof(prefs->mqtt_owner_public_key) +
-         sizeof(prefs->mqtt_email);
+         sizeof(prefs->mqtt_analyzer_eu_enabled) + sizeof(prefs->mqtt_analyzer_ru_enabled) +
+         sizeof(prefs->mqtt_owner_public_key) + sizeof(prefs->mqtt_email);
 }
 #endif
 
@@ -82,7 +82,7 @@ static const char* getTimezoneLabel(const NodePrefs* prefs) {
 void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   bool is_fresh_install = false;
   bool is_upgrade = false;
-  
+
   if (fs->exists("/com_prefs")) {
     loadPrefsInt(fs, "/com_prefs");   // new filename
   } else if (fs->exists("/node_prefs")) {
@@ -100,7 +100,7 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   loadMQTTPrefs(fs);
   // Sync MQTT prefs to NodePrefs so existing code (like MQTTBridge) can access them
   syncMQTTPrefsToNodePrefs();
-  
+
   // For MQTT bridge, migrate bridge.source to RX (logRx) only on fresh installs or upgrades
   // This ensures new users get the correct default, but respects existing user choices
   // MQTT bridge with TX requires mqtt.tx to be enabled (disabled by default),
@@ -172,7 +172,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     size_t mqtt_fields_size = getMQTTFieldsSize(_prefs);
 #else
     // If MQTT bridge not enabled, still skip these fields for file format compatibility
-    size_t mqtt_fields_size = 
+    size_t mqtt_fields_size =
       sizeof(_prefs->mqtt_origin) + sizeof(_prefs->mqtt_iata) +
       sizeof(_prefs->mqtt_status_enabled) + sizeof(_prefs->mqtt_packets_enabled) +
       sizeof(_prefs->mqtt_raw_enabled) + sizeof(_prefs->mqtt_tx_enabled) +
@@ -181,8 +181,8 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
       sizeof(_prefs->timezone_offset) + sizeof(_prefs->mqtt_server) +
       sizeof(_prefs->mqtt_port) + sizeof(_prefs->mqtt_username) +
       sizeof(_prefs->mqtt_password) + sizeof(_prefs->mqtt_analyzer_us_enabled) +
-      sizeof(_prefs->mqtt_analyzer_eu_enabled) + sizeof(_prefs->mqtt_owner_public_key) +
-      sizeof(_prefs->mqtt_email);
+      sizeof(_prefs->mqtt_analyzer_eu_enabled) + sizeof(_prefs->mqtt_analyzer_ru_enabled) +
+      sizeof(_prefs->mqtt_owner_public_key) + sizeof(_prefs->mqtt_email);
 #endif
     uint8_t skip_buffer[512]; // Large enough buffer
     size_t remaining = mqtt_fields_size;
@@ -286,7 +286,7 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     size_t mqtt_fields_size = getMQTTFieldsSize(_prefs);
 #else
     // If MQTT bridge not enabled, still write zeros for file format compatibility
-    size_t mqtt_fields_size = 
+    size_t mqtt_fields_size =
       sizeof(_prefs->mqtt_origin) + sizeof(_prefs->mqtt_iata) +
       sizeof(_prefs->mqtt_status_enabled) + sizeof(_prefs->mqtt_packets_enabled) +
       sizeof(_prefs->mqtt_raw_enabled) + sizeof(_prefs->mqtt_tx_enabled) +
@@ -295,8 +295,8 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
       sizeof(_prefs->timezone_offset) + sizeof(_prefs->mqtt_server) +
       sizeof(_prefs->mqtt_port) + sizeof(_prefs->mqtt_username) +
       sizeof(_prefs->mqtt_password) + sizeof(_prefs->mqtt_analyzer_us_enabled) +
-      sizeof(_prefs->mqtt_analyzer_eu_enabled) + sizeof(_prefs->mqtt_owner_public_key) +
-      sizeof(_prefs->mqtt_email);
+      sizeof(_prefs->mqtt_analyzer_eu_enabled) + sizeof(_prefs->mqtt_analyzer_ru_enabled) +
+      sizeof(_prefs->mqtt_owner_public_key) + sizeof(_prefs->mqtt_email);
 #endif
     memset(pad, 0, sizeof(pad));
     size_t remaining = mqtt_fields_size;
@@ -325,8 +325,9 @@ static void setMQTTPrefsDefaults(MQTTPrefs* prefs) {
   prefs->mqtt_raw_enabled = 0;       // disabled by default
   prefs->mqtt_tx_enabled = 0;        // disabled by default (RX only)
   prefs->mqtt_status_interval = 300000; // 5 minutes default
-  prefs->mqtt_analyzer_us_enabled = 1; // enabled by default
-  prefs->mqtt_analyzer_eu_enabled = 1; // enabled by default
+  prefs->mqtt_analyzer_us_enabled = 0; // disabled by default
+  prefs->mqtt_analyzer_eu_enabled = 0; // disabled by default
+  prefs->mqtt_analyzer_ru_enabled = 0; // disabled by default
   #ifdef MQTT_WIFI_POWER_SAVE_DEFAULT
   prefs->wifi_power_save = MQTT_WIFI_POWER_SAVE_DEFAULT; // 0=min, 1=none, 2=max
   #else
@@ -391,13 +392,14 @@ void CommonCLI::loadMQTTPrefs(FILESYSTEM* fs) {
   _mqtt_prefs.mqtt_status_interval = _prefs->mqtt_status_interval;
   _mqtt_prefs.mqtt_analyzer_us_enabled = _prefs->mqtt_analyzer_us_enabled;
   _mqtt_prefs.mqtt_analyzer_eu_enabled = _prefs->mqtt_analyzer_eu_enabled;
+  _mqtt_prefs.mqtt_analyzer_ru_enabled = _prefs->mqtt_analyzer_ru_enabled;
   if (_prefs->mqtt_owner_public_key[0] != '\0') {
     StrHelper::strncpy(_mqtt_prefs.mqtt_owner_public_key, _prefs->mqtt_owner_public_key, sizeof(_mqtt_prefs.mqtt_owner_public_key));
   }
   if (_prefs->mqtt_email[0] != '\0') {
     StrHelper::strncpy(_mqtt_prefs.mqtt_email, _prefs->mqtt_email, sizeof(_mqtt_prefs.mqtt_email));
   }
-  
+
   bool file_existed = fs->exists("/mqtt_prefs");
   if (file_existed) {
     // Load from separate MQTT prefs file
@@ -407,15 +409,16 @@ void CommonCLI::loadMQTTPrefs(FILESYSTEM* fs) {
     File file = fs->open("/mqtt_prefs");
 #endif
     if (file) {
-      // Verify file size is correct before reading
-      if (file.size() >= sizeof(_mqtt_prefs)) {
-        size_t bytes_read = file.read((uint8_t *)&_mqtt_prefs, sizeof(_mqtt_prefs));
-        if (bytes_read != sizeof(_mqtt_prefs)) {
-          // File read incomplete - reinitialize to defaults
+      // Accept files that are <= current struct size (older format) or exactly the right size.
+      // Reading fewer bytes leaves new fields at their pre-initialized defaults, preserving
+      // existing settings across firmware upgrades that add new prefs fields.
+      size_t to_read = file.size() < sizeof(_mqtt_prefs) ? (size_t)file.size() : sizeof(_mqtt_prefs);
+      if (to_read > 0) {
+        size_t bytes_read = file.read((uint8_t *)&_mqtt_prefs, to_read);
+        if (bytes_read != to_read) {
           setMQTTPrefsDefaults(&_mqtt_prefs);
         }
       } else {
-        // File too small - reinitialize to defaults
         setMQTTPrefsDefaults(&_mqtt_prefs);
       }
       file.close();
@@ -432,7 +435,7 @@ void CommonCLI::loadMQTTPrefs(FILESYSTEM* fs) {
       if (file) {
         // Skip to MQTT section (after advert_loc_policy at offset 161)
         // Calculate offset: we need to skip everything up to and including advert_loc_policy
-        size_t offset_to_mqtt = 
+        size_t offset_to_mqtt =
           sizeof(_prefs->airtime_factor) + sizeof(_prefs->node_name) + 4 + // pad
           sizeof(_prefs->node_lat) + sizeof(_prefs->node_lon) +
           sizeof(_prefs->password) + sizeof(_prefs->freq) +
@@ -450,7 +453,7 @@ void CommonCLI::loadMQTTPrefs(FILESYSTEM* fs) {
           sizeof(_prefs->bridge_secret) + 4 + // pad
           sizeof(_prefs->gps_enabled) + sizeof(_prefs->gps_interval) +
           sizeof(_prefs->advert_loc_policy);
-        
+
         // Check if file is large enough and seek succeeded
         if (file.size() >= offset_to_mqtt + sizeof(_mqtt_prefs)) {
           if (file.seek(offset_to_mqtt)) {
@@ -508,6 +511,7 @@ void CommonCLI::syncMQTTPrefsToNodePrefs() {
   StrHelper::strncpy(_prefs->mqtt_password, _mqtt_prefs.mqtt_password, sizeof(_prefs->mqtt_password));
   _prefs->mqtt_analyzer_us_enabled = _mqtt_prefs.mqtt_analyzer_us_enabled;
   _prefs->mqtt_analyzer_eu_enabled = _mqtt_prefs.mqtt_analyzer_eu_enabled;
+  _prefs->mqtt_analyzer_ru_enabled = _mqtt_prefs.mqtt_analyzer_ru_enabled;
   StrHelper::strncpy(_prefs->mqtt_owner_public_key, _mqtt_prefs.mqtt_owner_public_key, sizeof(_prefs->mqtt_owner_public_key));
   StrHelper::strncpy(_prefs->mqtt_email, _mqtt_prefs.mqtt_email, sizeof(_prefs->mqtt_email));
 }
@@ -533,6 +537,7 @@ void CommonCLI::syncNodePrefsToMQTTPrefs() {
   StrHelper::strncpy(_mqtt_prefs.mqtt_password, _prefs->mqtt_password, sizeof(_mqtt_prefs.mqtt_password));
   _mqtt_prefs.mqtt_analyzer_us_enabled = _prefs->mqtt_analyzer_us_enabled;
   _mqtt_prefs.mqtt_analyzer_eu_enabled = _prefs->mqtt_analyzer_eu_enabled;
+  _mqtt_prefs.mqtt_analyzer_ru_enabled = _prefs->mqtt_analyzer_ru_enabled;
   StrHelper::strncpy(_mqtt_prefs.mqtt_owner_public_key, _prefs->mqtt_owner_public_key, sizeof(_mqtt_prefs.mqtt_owner_public_key));
   StrHelper::strncpy(_mqtt_prefs.mqtt_email, _prefs->mqtt_email, sizeof(_mqtt_prefs.mqtt_email));
 }
@@ -590,8 +595,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d %s", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year(), getTimezoneLabel(_prefs));
     } else if (memcmp(command, "memory", 6) == 0) {
 #ifdef ESP_PLATFORM
-      sprintf(reply, "Free: %d, Min: %d, Max: %d, Queue: %d", 
-              ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), 
+      sprintf(reply, "Free: %d, Min: %d, Max: %d, Queue: %d",
+              ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(),
               _callbacks->getQueueSize());
 #else
       sprintf(reply, "Queue: %d", _callbacks->getQueueSize());
@@ -836,6 +841,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %s", _prefs->mqtt_analyzer_us_enabled ? "on" : "off");
       } else if (memcmp(config, "mqtt.analyzer.eu", 17) == 0) {
         sprintf(reply, "> %s", _prefs->mqtt_analyzer_eu_enabled ? "on" : "off");
+      } else if (memcmp(config, "mqtt.analyzer.ru", 17) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_analyzer_ru_enabled ? "on" : "off");
       } else if (sender_timestamp == 0 && memcmp(config, "mqtt.owner", 10) == 0) {  // from serial command line only
         if (_prefs->mqtt_owner_public_key[0] != '\0') {
           sprintf(reply, "> %s", _prefs->mqtt_owner_public_key);
@@ -1221,17 +1228,17 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
                   ps_value = 2;
                   valid = true;
                 }
-                
+
                 if (!valid) {
                   strcpy(reply, "Error: must be none, min, or max");
                 } else {
                   _prefs->wifi_power_save = ps_value;
                   savePrefs();
-                  
+
                   // Apply immediately if WiFi is connected
                   #ifdef ESP_PLATFORM
                   if (WiFi.status() == WL_CONNECTED) {
-                    wifi_ps_type_t ps_mode = (ps_value == 1) ? WIFI_PS_NONE : 
+                    wifi_ps_type_t ps_mode = (ps_value == 1) ? WIFI_PS_NONE :
                                             (ps_value == 2) ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM;
                     esp_err_t ps_result = esp_wifi_set_ps(ps_mode);
                     if (ps_result == ESP_OK) {
@@ -1305,6 +1312,17 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
                 } else {
                   strcpy(reply, "OK");
                 }
+              } else if (memcmp(config, "mqtt.analyzer.ru ", 17) == 0) {
+                bool enable = memcmp(&config[17], "on", 2) == 0;
+                bool changed = (_prefs->mqtt_analyzer_ru_enabled != enable);
+                _prefs->mqtt_analyzer_ru_enabled = enable;
+                savePrefs();
+                if (changed && _prefs->bridge_enabled) {
+                  _callbacks->restartBridge();
+                  sprintf(reply, "OK - analyzer.ru %s, bridge restarted", enable ? "on" : "off");
+                } else {
+                  strcpy(reply, "OK");
+                }
               } else if (memcmp(config, "mqtt.owner ", 11) == 0) {
                 // Validate that it's a valid hex string of the correct length (64 hex chars = 32 bytes)
                 const char* owner_key = &config[11];
@@ -1355,7 +1373,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       }
     } else if (memcmp(command, "sensor set ", 11) == 0) {
       strcpy(tmp, &command[11]);
-      const char *parts[2]; 
+      const char *parts[2];
       int num = mesh::Utils::parseTextParts(tmp, parts, 2, ' ');
       const char *key = (num > 0) ? parts[0] : "";
       const char *value = (num > 1) ? parts[1] : "null";
@@ -1378,7 +1396,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         dp = strchr(dp, 0);
         int i;
         for (i = start; i < end && (dp-reply < 134); i++) {
-          sprintf(dp, "%s=%s\n", 
+          sprintf(dp, "%s=%s\n",
             _sensors->getSettingName(i),
             _sensors->getSettingValue(i));
           dp = strchr(dp, 0);
@@ -1458,8 +1476,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         bool active = !strcmp(_sensors->getSettingByKey("gps"), "1");
         if (enabled) {
           sprintf(reply, "on, %s, %s, %d sats",
-            active?"active":"deactivated", 
-            fix?"fix":"no fix", 
+            active?"active":"deactivated",
+            fix?"fix":"no fix",
             sats);
         } else {
           strcpy(reply, "off");

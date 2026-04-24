@@ -63,7 +63,7 @@
 class MQTTBridge : public BridgeBase {
 private:
   PsychicMqttClient* _mqtt_client;
-  
+
   // MQTT broker configuration
   struct MQTTBroker {
     char host[64];
@@ -78,11 +78,11 @@ private:
     unsigned long last_attempt;
     unsigned long reconnect_interval;
   };
-  
+
   static const int MAX_MQTT_BROKERS_COUNT = 3;
   MQTTBroker _brokers[MAX_MQTT_BROKERS_COUNT];
   int _active_brokers;
-  
+
   // Message configuration
   char _origin[32];
   char _iata[8];
@@ -98,7 +98,7 @@ private:
   bool _tx_enabled;
   unsigned long _last_status_publish;
   unsigned long _status_interval;
-  
+
   // Packet queue for offline scenarios
   struct QueuedPacket {
     unsigned long timestamp;
@@ -113,9 +113,9 @@ private:
     float rssi;
     bool has_raw_data;
   };
-  
+
   static const int MAX_QUEUE_SIZE = MQTT_PACKET_QUEUE_SIZE;
-  
+
   // FreeRTOS queue for thread-safe packet queuing
   #ifdef ESP_PLATFORM
   QueueHandle_t _packet_queue_handle;
@@ -134,17 +134,17 @@ private:
   int _queue_tail;
   #endif
   int _queue_count;  // Protected by queue operations or mutex
-  
+
   // NTP time sync
   WiFiUDP _ntp_udp;
   NTPClient _ntp_client;
   unsigned long _last_ntp_sync;
   bool _ntp_synced;
   bool _ntp_sync_pending;  // Flag to trigger NTP sync from loop() instead of event handler
-  
+
   // Timezone handling
   Timezone* _timezone;
-  
+
   // Raw radio data storage (plan §6: PSRAM when BOARD_HAS_PSRAM)
   static const size_t LAST_RAW_DATA_SIZE = 256;
   uint8_t* _last_raw_data;
@@ -152,19 +152,33 @@ private:
   float _last_snr;
   float _last_rssi;
   unsigned long _last_raw_timestamp;
-  
+
   // Let's Mesh Analyzer support
-  bool _analyzer_us_enabled;
-  bool _analyzer_eu_enabled;
+  struct AnalyzerServerDef {
+    char name[3];
+    char url[96];
+    char jwt_audience[64];
+    char username[32];
+    char password[64];
+  };
+  static const int NUM_ANALYZER_SERVERS = 3;
+  static const AnalyzerServerDef ANALYZER_SERVER_DEFS[NUM_ANALYZER_SERVERS];
+
+  struct AnalyzerServerState {
+    bool               enabled;
+    PsychicMqttClient* client;
+    char*              auth_token;
+    unsigned long      token_expires_at;
+    unsigned long      last_log;
+    unsigned long      last_token_renewal_attempt;
+    unsigned long      last_reconnect_attempt;
+    uint8_t            reconnect_backoff;
+  };
+
   static const size_t AUTH_TOKEN_SIZE = 768;
-  char* _auth_token_us; // JWT token for US server (PSRAM when BOARD_HAS_PSRAM)
-  char* _auth_token_eu; // JWT token for EU server (PSRAM when BOARD_HAS_PSRAM)
+  AnalyzerServerState _analyzer_state[NUM_ANALYZER_SERVERS];
   char _analyzer_username[70]; // Username in format v1_{UPPERCASE_PUBLIC_KEY}
-  
-  // Token expiration tracking
-  unsigned long _token_us_expires_at;
-  unsigned long _token_eu_expires_at;
-  
+
   // Memory pressure monitoring
   unsigned long _last_memory_check;
   int _skipped_publishes;  // Count of skipped publishes due to memory pressure
@@ -173,36 +187,24 @@ private:
   unsigned long _last_critical_check_run;  // Throttle: run unified check at most every 60s
   unsigned long _all_mqtt_disconnected_since;  // 0 = at least one destination healthy, else first full-outage time
   unsigned long _last_outage_recovery;  // Throttle client recreation when all MQTT destinations are down
-  unsigned long _last_token_renewal_attempt_us;
-  unsigned long _last_token_renewal_attempt_eu;
-  unsigned long _last_reconnect_attempt_us;
-  unsigned long _last_reconnect_attempt_eu;
-  
   // Status publish retry tracking
   unsigned long _last_status_retry;  // Track last retry attempt (separate from successful publish)
   static const unsigned long STATUS_RETRY_INTERVAL = 30000; // Retry every 30 seconds if failed
-  
+
   // Device identity for JWT token creation
   mesh::LocalIdentity *_identity;
-  
-  // PsychicMqttClient instances for different brokers
-  PsychicMqttClient* _analyzer_us_client;
-  PsychicMqttClient* _analyzer_eu_client;
-  
+
   // Configuration validation state
   bool _config_valid;
-  
+
   // Cached broker connection status (updated in callbacks to avoid redundant checks)
   bool _cached_has_brokers;
   bool _cached_has_analyzer_servers;
-  
+
   // Throttle logging for disconnected broker messages
   unsigned long _last_no_broker_log;
   static const unsigned long NO_BROKER_LOG_INTERVAL = 30000; // Log every 30 seconds max
-  
-  // Throttle logging for analyzer client disconnected messages
-  unsigned long _last_analyzer_us_log;
-  unsigned long _last_analyzer_eu_log;
+
   static const unsigned long ANALYZER_LOG_INTERVAL = 30000; // Log every 30 seconds max
   unsigned long _last_config_warning; // Throttle configuration mismatch warnings
   static const unsigned long CONFIG_WARNING_INTERVAL = 300000; // Log every 5 minutes max
@@ -216,18 +218,17 @@ private:
   uint8_t _wifi_reconnect_backoff_attempt;  // 0..5 → 15s, 30s, 60s, 120s, 300s; reset on connect
   // Main broker reconnect backoff (reset in onConnect)
   uint8_t _main_broker_reconnect_backoff_attempt;  // 0..5 → 15s, 30s, 60s, 120s, 300s
-  // Analyzer reconnect backoff (reset when that client is connected)
-  uint8_t _analyzer_us_reconnect_backoff_attempt;  // 0..4 → 60s, 120s, 240s, 300000
-  uint8_t _analyzer_eu_reconnect_backoff_attempt;
-  
+
   // Optional pointers for collecting stats internally (set by mesh if available)
   mesh::Dispatcher* _dispatcher;  // For air times and errors
   mesh::Radio* _radio;             // For noise floor
   mesh::MainBoard* _board;         // For battery voltage
   mesh::MillisecondClock* _ms;    // For uptime
-  
+
   // Internal methods
-  void ensureMainMqttClient();  // Create main MQTT client if _config_valid and _mqtt_client is null (e.g. after reinit)
+  void ensureMainMqttClient();
+  void loadAnalyzerEnabledFromPrefs();   // Map NodePrefs us/eu/ru flags → _analyzer_state[].enabled
+  void updateAnalyzerCacheStatus();      // Recompute _cached_has_analyzer_servers from array state
   #ifdef ESP_PLATFORM
   void runCriticalMemoryCheckAndRecovery();  // Unified heap check, pressure timer, optional recovery
   #endif
@@ -243,7 +244,7 @@ private:
   // Single place for WiFi monitoring: disconnect analyzers on drop, force reconnect with exponential backoff.
   // Returns true if we transitioned to connected this call (e.g. for NTP sync in loop()).
   bool handleWiFiConnection(unsigned long now);
-  
+
   // FreeRTOS task function (runs on Core 0)
   #ifdef ESP_PLATFORM
   static void mqttTask(void* parameter);
@@ -263,7 +264,7 @@ private:
   bool isMQTTConfigValid();
   void checkConfigurationMismatch(); // Check for bridge.source/mqtt.tx mismatch
   bool isIATAValid() const;  // Check if IATA code is configured
-  
+
 public:
   /**
    * Constructs an MQTTBridge instance
@@ -361,7 +362,7 @@ public:
    * @param password MQTT password
    * @param enabled Whether broker is enabled
    */
-  void setBroker(int broker_index, const char* host, uint16_t port, 
+  void setBroker(int broker_index, const char* host, uint16_t port,
                  const char* username, const char* password, bool enabled);
 
   /**
@@ -415,22 +416,23 @@ public:
    * @param rssi Received signal strength indicator
    */
   void storeRawRadioData(const uint8_t* raw_data, int len, float snr, float rssi);
-  
+
   // Let's Mesh Analyzer methods
   void setupAnalyzerServers();
   bool createAuthToken();
   bool publishToAnalyzerServers(const char* topic, const char* payload, bool retained = false);  // Returns true if at least one publish succeeded
-  
+
   // PsychicMqttClient WebSocket methods
   void setupAnalyzerClients();
   void maintainAnalyzerConnections();
   bool publishToAnalyzerClient(PsychicMqttClient* client, const char* topic, const char* payload, bool retained = false);  // Returns true if publish succeeded
   void publishStatusToAnalyzerClient(PsychicMqttClient* client, const char* server_name);
-  
+  int findAnalyzerClientIndex(PsychicMqttClient* client) const;
+
   /**
    * Optimize MQTT client configuration for memory efficiency
    * Reduces buffer sizes to minimize memory usage while maintaining functionality
-   * 
+   *
    * @param client MQTT client to optimize
    * @param is_analyzer_client If true, uses larger buffer for JWT tokens (768 bytes)
    */
@@ -468,7 +470,7 @@ public:
    * @param board MainBoard for battery voltage
    * @param ms MillisecondClock for uptime
    */
-  void setStatsSources(mesh::Dispatcher* dispatcher, mesh::Radio* radio, 
+  void setStatsSources(mesh::Dispatcher* dispatcher, mesh::Radio* radio,
                        mesh::MainBoard* board, mesh::MillisecondClock* ms);
 
 private:

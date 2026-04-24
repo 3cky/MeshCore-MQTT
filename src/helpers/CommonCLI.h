@@ -86,9 +86,10 @@ struct NodePrefs { // persisted to file
   // Let's Mesh Analyzer settings
   uint8_t mqtt_analyzer_us_enabled; // Enable US analyzer server
   uint8_t mqtt_analyzer_eu_enabled; // Enable EU analyzer server
+  uint8_t mqtt_analyzer_ru_enabled; // Enable RU analyzer server
   char mqtt_owner_public_key[65]; // Owner public key (hex string, same length as repeater public key)
   char mqtt_email[64]; // Owner email address for matching nodes with owners
-  
+
   uint8_t loop_detect;
 };
 
@@ -122,6 +123,7 @@ struct MQTTPrefs {
   // Let's Mesh Analyzer settings
   uint8_t mqtt_analyzer_us_enabled; // Enable US analyzer server
   uint8_t mqtt_analyzer_eu_enabled; // Enable EU analyzer server
+  uint8_t mqtt_analyzer_ru_enabled; // Enable RU analyzer server
   char mqtt_owner_public_key[65]; // Owner public key (hex string, same length as repeater public key)
   char mqtt_email[64]; // Owner email address for matching nodes with owners
 };
