@@ -87,6 +87,8 @@ private:
   char _origin[32];
   char _iata[8];
   char _device_id[65];  // Device public key (hex string)
+  char _lwt_topic[128];
+  char _lwt_payload[256];
   char _firmware_version[64];  // Firmware version string
   char _board_model[64];  // Board model string
   char _build_date[32];  // Build date string
@@ -234,6 +236,7 @@ private:
   bool brokerRequiresJWT(const MQTTBroker& broker) const;
   bool isBrokerReadyToConnect(const MQTTBroker& broker) const;
   bool areAnalyzerPrerequisitesReady() const;
+  void setClientLwt(PsychicMqttClient* client);
   void connectToBrokers();
   void processPacketQueue();
   bool publishStatus();  // Returns true if status was successfully published

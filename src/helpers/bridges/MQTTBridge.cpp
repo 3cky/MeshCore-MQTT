@@ -1440,6 +1440,15 @@ void MQTTBridge::recreateMqttClientsForFragmentationRecovery() {
   setupAnalyzerClients();
 }
 
+void MQTTBridge::setClientLwt(PsychicMqttClient* client) {
+  if (!client || !isIATAValid() || _device_id[0] == '\0') return;
+  snprintf(_lwt_topic, sizeof(_lwt_topic), "meshcore/%s/%s/status", _iata, _device_id);
+  snprintf(_lwt_payload, sizeof(_lwt_payload),
+    "{\"origin\":\"%s\",\"origin_id\":\"%s\",\"status\":\"offline\"}",
+    _origin, _device_id);
+  client->setWill(_lwt_topic, 1, true, _lwt_payload, strlen(_lwt_payload));
+}
+
 void MQTTBridge::connectToBrokers() {
   // Recreate main client if it was deleted during reinit (allows fresh heap allocations)
   ensureMainMqttClient();
@@ -1538,6 +1547,7 @@ void MQTTBridge::connectToBrokers() {
         _mqtt_client->setCredentials(_brokers[i].username, _brokers[i].password);
       }
 
+      setClientLwt(_mqtt_client);
       _mqtt_client->connect();
       _brokers[i].initial_connect_done = true;
       _brokers[i].last_attempt = millis();
@@ -1602,6 +1612,7 @@ void MQTTBridge::connectToBrokers() {
           _mqtt_client->setCredentials(_brokers[i].username, _brokers[i].password);
         }
 
+        setClientLwt(_mqtt_client);
         _mqtt_client->connect();
         _brokers[i].last_attempt = now;
         if (_main_broker_reconnect_backoff_attempt < 5) {
@@ -2724,6 +2735,7 @@ void MQTTBridge::setupAnalyzerClients() {
     _analyzer_us_client->setCACert(GTS_ROOT_R4);
 
     if (WiFi.status() == WL_CONNECTED && _ntp_synced) {
+      setClientLwt(_analyzer_us_client);
       _analyzer_us_client->connect();
     }
   }
@@ -2773,6 +2785,7 @@ void MQTTBridge::setupAnalyzerClients() {
     _analyzer_eu_client->setCACert(GTS_ROOT_R4);
 
     if (WiFi.status() == WL_CONNECTED && _ntp_synced) {
+      setClientLwt(_analyzer_eu_client);
       _analyzer_eu_client->connect();
     }
   }
