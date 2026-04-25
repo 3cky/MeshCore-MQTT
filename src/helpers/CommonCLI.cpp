@@ -8,6 +8,7 @@
 #define BRIDGE_MAX_BAUD 115200
 #endif
 #include <Timezone.h>
+#include "TimezoneHelper.h"
 #ifdef ESP_PLATFORM
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -53,14 +54,11 @@ static uint32_t toLocalEpoch(const NodePrefs* prefs, uint32_t utc_epoch) {
 
   const char* tz = prefs->timezone_string;
   if (tz && tz[0] != '\0') {
-    if (strcmp(tz, "Australia/Melbourne") == 0 || strcmp(tz, "AEST") == 0 || strcmp(tz, "AEDT") == 0) {
-      TimeChangeRule aedt = {"AEDT", First, Sun, Oct, 2, 660}; // UTC+11
-      TimeChangeRule aest = {"AEST", First, Sun, Apr, 3, 600}; // UTC+10
-      Timezone melbourne(aedt, aest);
-      return (uint32_t)melbourne.toLocal((time_t)utc_epoch);
-    }
-    if (strcmp(tz, "UTC") == 0 || strcmp(tz, "Etc/UTC") == 0 || strcmp(tz, "GMT") == 0) {
-      return utc_epoch;
+    Timezone* timezone = createTimezoneFromString(tz);
+    if (timezone) {
+      uint32_t local = (uint32_t)timezone->toLocal((time_t)utc_epoch);
+      delete timezone;
+      return local;
     }
   }
 

@@ -1,5 +1,6 @@
 #include "MQTTBridge.h"
 #include "../MQTTMessageBuilder.h"
+#include "../TimezoneHelper.h"
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Timezone.h>
@@ -1802,12 +1803,16 @@ bool MQTTBridge::publishStatus() {
   char timestamp[32];
   char radio_info[64];
 
-  // Get current timestamp in ISO 8601 format
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo)) {
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S.000000", &timeinfo);
-  } else {
-    strcpy(timestamp, "2024-01-01T12:00:00.000000");
+  // Get current timestamp in ISO 8601 format (local time, matches meshcoretomqtt reference)
+  {
+    time_t _now = time(nullptr);
+    time_t _local = _timezone ? _timezone->toLocal(_now) : _now;
+    struct tm* _tm = localtime(&_local);
+    if (_tm) {
+      strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S.000000", _tm);
+    } else {
+      strcpy(timestamp, "2024-01-01T12:00:00.000000");
+    }
   }
 
   // Build radio info string (freq,bw,sf,cr)
@@ -2770,12 +2775,16 @@ void MQTTBridge::publishStatusToAnalyzerClient(PsychicMqttClient* client, const 
   char timestamp[32];
   char radio_info[64];
 
-  // Get current timestamp in ISO 8601 format
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo)) {
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S.000000", &timeinfo);
-  } else {
-    strcpy(timestamp, "2024-01-01T12:00:00.000000");
+  // Get current timestamp in ISO 8601 format (local time, matches meshcoretomqtt reference)
+  {
+    time_t _now = time(nullptr);
+    time_t _local = _timezone ? _timezone->toLocal(_now) : _now;
+    struct tm* _tm = localtime(&_local);
+    if (_tm) {
+      strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S.000000", _tm);
+    } else {
+      strcpy(timestamp, "2024-01-01T12:00:00.000000");
+    }
   }
 
   // Build radio info string (freq,bw,sf,cr)
@@ -3180,125 +3189,11 @@ void MQTTBridge::syncTimeWithNTP() {
 }
 
 Timezone* MQTTBridge::createTimezoneFromString(const char* tz_string) {
-  // Create Timezone objects for common IANA timezone strings
-
-  // North America
-  if (strcmp(tz_string, "America/Los_Angeles") == 0 || strcmp(tz_string, "America/Vancouver") == 0) {
-    TimeChangeRule pst = {"PST", First, Sun, Nov, 2, -480};  // UTC-8
-    TimeChangeRule pdt = {"PDT", Second, Sun, Mar, 2, -420}; // UTC-7
-    return new Timezone(pdt, pst);
-  } else if (strcmp(tz_string, "America/Denver") == 0) {
-    TimeChangeRule mst = {"MST", First, Sun, Nov, 2, -420};  // UTC-7
-    TimeChangeRule mdt = {"MDT", Second, Sun, Mar, 2, -360};  // UTC-6
-    return new Timezone(mdt, mst);
-  } else if (strcmp(tz_string, "America/Chicago") == 0) {
-    TimeChangeRule cst = {"CST", First, Sun, Nov, 2, -360};  // UTC-6
-    TimeChangeRule cdt = {"CDT", Second, Sun, Mar, 2, -300}; // UTC-5
-    return new Timezone(cdt, cst);
-  } else if (strcmp(tz_string, "America/New_York") == 0 || strcmp(tz_string, "America/Toronto") == 0) {
-    TimeChangeRule est = {"EST", First, Sun, Nov, 2, -300};   // UTC-5
-    TimeChangeRule edt = {"EDT", Second, Sun, Mar, 2, -240}; // UTC-4
-    return new Timezone(edt, est);
-  } else if (strcmp(tz_string, "America/Anchorage") == 0) {
-    TimeChangeRule akst = {"AKST", First, Sun, Nov, 2, -540}; // UTC-9
-    TimeChangeRule akdt = {"AKDT", Second, Sun, Mar, 2, -480}; // UTC-8
-    return new Timezone(akdt, akst);
-  } else if (strcmp(tz_string, "Pacific/Honolulu") == 0) {
-    TimeChangeRule hst = {"HST", Last, Sun, Oct, 2, -600}; // UTC-10 (no DST)
-    return new Timezone(hst, hst);
-
-  // Europe
-  } else if (strcmp(tz_string, "Europe/London") == 0) {
-    TimeChangeRule gmt = {"GMT", Last, Sun, Oct, 2, 0};     // UTC+0
-    TimeChangeRule bst = {"BST", Last, Sun, Mar, 1, 60};    // UTC+1
-    return new Timezone(bst, gmt);
-  } else if (strcmp(tz_string, "Europe/Paris") == 0 || strcmp(tz_string, "Europe/Berlin") == 0) {
-    TimeChangeRule cet = {"CET", Last, Sun, Oct, 3, 60};    // UTC+1
-    TimeChangeRule cest = {"CEST", Last, Sun, Mar, 2, 120}; // UTC+2
-    return new Timezone(cest, cet);
-  } else if (strcmp(tz_string, "Europe/Moscow") == 0) {
-    TimeChangeRule msk = {"MSK", Last, Sun, Oct, 3, 180};   // UTC+3 (no DST since 2014)
-    return new Timezone(msk, msk);
-
-  // Asia
-  } else if (strcmp(tz_string, "Asia/Tokyo") == 0) {
-    TimeChangeRule jst = {"JST", Last, Sun, Oct, 2, 540};   // UTC+9 (no DST)
-    return new Timezone(jst, jst);
-  } else if (strcmp(tz_string, "Asia/Shanghai") == 0 || strcmp(tz_string, "Asia/Hong_Kong") == 0) {
-    TimeChangeRule cst = {"CST", Last, Sun, Oct, 2, 480};   // UTC+8 (no DST)
-    return new Timezone(cst, cst);
-  } else if (strcmp(tz_string, "Asia/Kolkata") == 0) {
-    TimeChangeRule ist = {"IST", Last, Sun, Oct, 2, 330};   // UTC+5:30 (no DST)
-    return new Timezone(ist, ist);
-  } else if (strcmp(tz_string, "Asia/Dubai") == 0) {
-    TimeChangeRule gst = {"GST", Last, Sun, Oct, 2, 240};   // UTC+4 (no DST)
-    return new Timezone(gst, gst);
-
-  // Australia
-  } else if (strcmp(tz_string, "Australia/Sydney") == 0 || strcmp(tz_string, "Australia/Melbourne") == 0) {
-    TimeChangeRule aest = {"AEST", First, Sun, Apr, 3, 600};  // UTC+10
-    TimeChangeRule aedt = {"AEDT", First, Sun, Oct, 2, 660};   // UTC+11
-    return new Timezone(aedt, aest);
-  } else if (strcmp(tz_string, "Australia/Perth") == 0) {
-    TimeChangeRule awst = {"AWST", Last, Sun, Oct, 2, 480};   // UTC+8 (no DST)
-    return new Timezone(awst, awst);
-
-  // Timezone abbreviations (with DST handling)
-  } else if (strcmp(tz_string, "PDT") == 0 || strcmp(tz_string, "PST") == 0) {
-    // Pacific Time (PST/PDT)
-    TimeChangeRule pst = {"PST", First, Sun, Nov, 2, -480};  // UTC-8
-    TimeChangeRule pdt = {"PDT", Second, Sun, Mar, 2, -420}; // UTC-7
-    return new Timezone(pdt, pst);
-  } else if (strcmp(tz_string, "MDT") == 0 || strcmp(tz_string, "MST") == 0) {
-    // Mountain Time (MST/MDT)
-    TimeChangeRule mst = {"MST", First, Sun, Nov, 2, -420};  // UTC-7
-    TimeChangeRule mdt = {"MDT", Second, Sun, Mar, 2, -360};  // UTC-6
-    return new Timezone(mdt, mst);
-  } else if (strcmp(tz_string, "CDT") == 0 || strcmp(tz_string, "CST") == 0) {
-    // Central Time (CST/CDT)
-    TimeChangeRule cst = {"CST", First, Sun, Nov, 2, -360};  // UTC-6
-    TimeChangeRule cdt = {"CDT", Second, Sun, Mar, 2, -300}; // UTC-5
-    return new Timezone(cdt, cst);
-  } else if (strcmp(tz_string, "EDT") == 0 || strcmp(tz_string, "EST") == 0) {
-    // Eastern Time (EST/EDT)
-    TimeChangeRule est = {"EST", First, Sun, Nov, 2, -300};   // UTC-5
-    TimeChangeRule edt = {"EDT", Second, Sun, Mar, 2, -240}; // UTC-4
-    return new Timezone(edt, est);
-  } else if (strcmp(tz_string, "BST") == 0 || strcmp(tz_string, "GMT") == 0) {
-    // British Time (GMT/BST)
-    TimeChangeRule gmt = {"GMT", Last, Sun, Oct, 2, 0};     // UTC+0
-    TimeChangeRule bst = {"BST", Last, Sun, Mar, 1, 60};    // UTC+1
-    return new Timezone(bst, gmt);
-  } else if (strcmp(tz_string, "CEST") == 0 || strcmp(tz_string, "CET") == 0) {
-    // Central European Time (CET/CEST)
-    TimeChangeRule cet = {"CET", Last, Sun, Oct, 3, 60};    // UTC+1
-    TimeChangeRule cest = {"CEST", Last, Sun, Mar, 2, 120}; // UTC+2
-    return new Timezone(cest, cet);
-
-  // UTC and simple offsets
-  } else if (strcmp(tz_string, "UTC") == 0) {
-    TimeChangeRule utc = {"UTC", Last, Sun, Mar, 0, 0};
-    return new Timezone(utc, utc);
-  } else if (strncmp(tz_string, "UTC", 3) == 0) {
-    // Handle UTC+/-X format (UTC-8, UTC+5, etc.)
-    int offset = atoi(tz_string + 3);
-    TimeChangeRule utc_offset = {"UTC", Last, Sun, Mar, 0, offset * 60};
-    return new Timezone(utc_offset, utc_offset);
-  } else if (strncmp(tz_string, "GMT", 3) == 0) {
-    // Handle GMT+/-X format (GMT-8, GMT+5, etc.)
-    int offset = atoi(tz_string + 3);
-    TimeChangeRule gmt_offset = {"GMT", Last, Sun, Mar, 0, offset * 60};
-    return new Timezone(gmt_offset, gmt_offset);
-  } else if (strncmp(tz_string, "+", 1) == 0 || strncmp(tz_string, "-", 1) == 0) {
-    // Handle simple +/-X format (+5, -8, etc.)
-    int offset = atoi(tz_string);
-    TimeChangeRule offset_tz = {"TZ", Last, Sun, Mar, 0, offset * 60};
-    return new Timezone(offset_tz, offset_tz);
-  } else {
-    // Unknown timezone, return null
+  Timezone* tz = ::createTimezoneFromString(tz_string);
+  if (!tz) {
     MQTT_DEBUG_PRINTLN("Unknown timezone: %s", tz_string);
-    return nullptr;
   }
+  return tz;
 }
 
 void MQTTBridge::getClientVersion(char* buffer, size_t buffer_size) const {
