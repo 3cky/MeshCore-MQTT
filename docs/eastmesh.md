@@ -298,10 +298,30 @@ Use either:
 - serial console at `115200` baud, or
 - the repeater console from another MeshCore device
 - the `Console` tab in WebFlasher, using the correct serial port
+- TCP CLI console over the network (see below — available once WiFi is up)
 
-The commands below work from either interface unless otherwise noted.
+The commands below work from any of these interfaces unless otherwise noted.
 
 For the general console flow, see the quick start section in [MQTT Bridge Implementation](./MQTT_IMPLEMENTATION.md#quick-start-guide).
+
+### TCP CLI Console
+
+Once WiFi is connected (Step 8), the device opens a TCP CLI console on port **5001**. It accepts the same commands as the serial interface. Only one client can be connected at a time.
+
+**Connect:**
+
+```bash
+telnet <device-ip> 5001
+# or
+nc <device-ip> 5001
+```
+
+**Disconnect:**
+
+- Type `logout` and press Enter.
+- Press **Ctrl+D**.
+
+The device IP is shown on the serial console when WiFi first connects.
 
 ## Step 8: Configure WiFi
 
