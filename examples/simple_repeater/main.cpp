@@ -3,6 +3,17 @@
 
 #include "MyMesh.h"
 
+#if defined(ESP32) && defined(WITH_MQTT_BRIDGE)
+#include <WiFi.h>
+#ifndef TCP_CLI_PORT
+  #define TCP_CLI_PORT 5001
+#endif
+static WiFiServer  tcp_cli_server(TCP_CLI_PORT);
+static WiFiClient  tcp_cli_client;
+static char        tcp_command[160];
+static bool        tcp_server_active = false;
+#endif
+
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
   static UITask ui_task(display);
@@ -95,6 +106,7 @@ void setup() {
 
   the_mesh.begin(fs);
 
+
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
 #endif
@@ -131,6 +143,53 @@ void loop() {
 
     command[0] = 0;  // reset command buffer
   }
+
+#if defined(ESP32) && defined(WITH_MQTT_BRIDGE)
+  if (strlen(the_mesh.getNodePrefs()->wifi_ssid) > 0) {
+    bool wifi_up = (WiFi.status() == WL_CONNECTED);
+    if (wifi_up && !tcp_server_active) {
+      tcp_cli_server.begin();
+      tcp_server_active = true;
+      Serial.printf("WiFi connected, IP: %s\r\n", WiFi.localIP().toString().c_str());
+      Serial.printf("Started TCP CLI console on port %d\r\n", TCP_CLI_PORT);
+    } else if (!wifi_up && tcp_server_active) {
+      tcp_cli_client.stop();
+      tcp_server_active = false;
+    }
+    if (tcp_server_active) {
+      WiFiClient new_tcp = tcp_cli_server.available();
+      if (new_tcp) {
+        tcp_cli_client.stop();
+        tcp_cli_client = new_tcp;
+        tcp_command[0] = 0;
+      }
+      if (tcp_cli_client.connected()) {
+        int tcp_len = strlen(tcp_command);
+        while (tcp_cli_client.available() && tcp_len < (int)sizeof(tcp_command)-1) {
+          char c = tcp_cli_client.read();
+          if (c != '\n') {
+            tcp_command[tcp_len++] = c;
+            tcp_command[tcp_len] = 0;
+          }
+          if (c == '\r') break;
+        }
+        if (tcp_len == (int)sizeof(tcp_command)-1)
+          tcp_command[sizeof(tcp_command)-1] = '\r';
+
+        if (tcp_len > 0 && tcp_command[tcp_len-1] == '\r') {
+          tcp_command[tcp_len-1] = 0;
+          char reply[160];
+          the_mesh.handleCommand(0, tcp_command, reply);
+          if (reply[0]) {
+            tcp_cli_client.print("  -> ");
+            tcp_cli_client.println(reply);
+          }
+          tcp_command[0] = 0;
+        }
+      }
+    }
+  }
+#endif
 
 #if defined(PIN_USER_BTN) && defined(_SEEED_SENSECAP_SOLAR_H_)
   // Hold the user button to power off the SenseCAP Solar repeater.
