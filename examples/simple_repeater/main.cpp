@@ -165,8 +165,13 @@ void loop() {
       }
       if (tcp_cli_client.connected()) {
         int tcp_len = strlen(tcp_command);
+        bool tcp_disconnect = false;
         while (tcp_cli_client.available() && tcp_len < (int)sizeof(tcp_command)-1) {
           char c = tcp_cli_client.read();
+          if (c == 0x04) { // Ctrl+D
+            tcp_disconnect = true;
+            break;
+          }
           if (c != '\n') {
             tcp_command[tcp_len++] = c;
             tcp_command[tcp_len] = 0;
@@ -176,13 +181,20 @@ void loop() {
         if (tcp_len == (int)sizeof(tcp_command)-1)
           tcp_command[sizeof(tcp_command)-1] = '\r';
 
-        if (tcp_len > 0 && tcp_command[tcp_len-1] == '\r') {
+        if (tcp_disconnect) {
+          tcp_cli_client.stop();
+          tcp_command[0] = 0;
+        } else if (tcp_len > 0 && tcp_command[tcp_len-1] == '\r') {
           tcp_command[tcp_len-1] = 0;
-          char reply[160];
-          the_mesh.handleCommand(0, tcp_command, reply);
-          if (reply[0]) {
-            tcp_cli_client.print("  -> ");
-            tcp_cli_client.println(reply);
+          if (strcmp(tcp_command, "logout") == 0) {
+            tcp_cli_client.stop();
+          } else {
+            char reply[160];
+            the_mesh.handleCommand(0, tcp_command, reply);
+            if (reply[0]) {
+              tcp_cli_client.print("  -> ");
+              tcp_cli_client.println(reply);
+            }
           }
           tcp_command[0] = 0;
         }
