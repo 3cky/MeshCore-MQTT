@@ -5,13 +5,12 @@ Binary frame structures for companion radio stats commands. All multi-byte integ
 ## Command Codes
 
 | Command         | Code | Description                                      |
-| --------------- | ---- | ------------------------------------------------ |
+|-----------------|------|--------------------------------------------------|
 | `CMD_GET_STATS` | 56   | Get statistics (2-byte command: code + sub-type) |
 
 ### Stats Sub-Types
 
 The `CMD_GET_STATS` command uses a 2-byte frame structure:
-
 - **Byte 0:** `CMD_GET_STATS` (56)
 - **Byte 1:** Stats sub-type:
   - `STATS_TYPE_CORE` (0) - Get core device statistics
@@ -21,13 +20,12 @@ The `CMD_GET_STATS` command uses a 2-byte frame structure:
 ## Response Codes
 
 | Response          | Code | Description                                            |
-| ----------------- | ---- | ------------------------------------------------------ |
+|-------------------|------|--------------------------------------------------------|
 | `RESP_CODE_STATS` | 24   | Statistics response (2-byte response: code + sub-type) |
 
 ### Stats Response Sub-Types
 
 The `RESP_CODE_STATS` response uses a 2-byte header structure:
-
 - **Byte 0:** `RESP_CODE_STATS` (24)
 - **Byte 1:** Stats sub-type (matches command sub-type):
   - `STATS_TYPE_CORE` (0) - Core device statistics response
@@ -41,7 +39,7 @@ The `RESP_CODE_STATS` response uses a 2-byte header structure:
 **Total Frame Size:** 11 bytes
 
 | Offset | Size | Type     | Field Name    | Description                     | Range/Notes       |
-| ------ | ---- | -------- | ------------- | ------------------------------- | ----------------- |
+|--------|------|----------|---------------|---------------------------------|-------------------|
 | 0      | 1    | uint8_t  | response_code | Always `0x18` (24)              | -                 |
 | 1      | 1    | uint8_t  | stats_type    | Always `0x00` (STATS_TYPE_CORE) | -                 |
 | 2      | 2    | uint16_t | battery_mv    | Battery voltage in millivolts   | 0 - 65,535        |
@@ -69,7 +67,7 @@ struct StatsCore {
 **Total Frame Size:** 14 bytes
 
 | Offset | Size | Type     | Field Name    | Description                            | Range/Notes          |
-| ------ | ---- | -------- | ------------- | -------------------------------------- | -------------------- |
+|--------|------|----------|---------------|----------------------------------------|----------------------|
 | 0      | 1    | uint8_t  | response_code | Always `0x18` (24)                     | -                    |
 | 1      | 1    | uint8_t  | stats_type    | Always `0x01` (STATS_TYPE_RADIO)       | -                    |
 | 2      | 2    | int16_t  | noise_floor   | Radio noise floor in dBm               | -140 to +10          |
@@ -99,7 +97,7 @@ struct StatsRadio {
 **Total Frame Size:** 26 bytes (legacy) or 30 bytes (includes `recv_errors`)
 
 | Offset | Size | Type     | Field Name    | Description                                                  | Range/Notes       |
-| ------ | ---- | -------- | ------------- | ------------------------------------------------------------ | ----------------- |
+|--------|------|----------|---------------|--------------------------------------------------------------|-------------------|
 | 0      | 1    | uint8_t  | response_code | Always `0x18` (24)                                           | -                 |
 | 1      | 1    | uint8_t  | stats_type    | Always `0x02` (STATS_TYPE_PACKETS)                           | -                 |
 | 2      | 4    | uint32_t | recv          | Total packets received                                       | 0 - 4,294,967,295 |
@@ -219,18 +217,18 @@ const STATS_TYPE_RADIO = 1;
 const STATS_TYPE_PACKETS = 2;
 
 function sendGetStatsCore(serialInterface: SerialPort): void {
-  const cmd = new Uint8Array([CMD_GET_STATS, STATS_TYPE_CORE]);
-  serialInterface.write(cmd);
+    const cmd = new Uint8Array([CMD_GET_STATS, STATS_TYPE_CORE]);
+    serialInterface.write(cmd);
 }
 
 function sendGetStatsRadio(serialInterface: SerialPort): void {
-  const cmd = new Uint8Array([CMD_GET_STATS, STATS_TYPE_RADIO]);
-  serialInterface.write(cmd);
+    const cmd = new Uint8Array([CMD_GET_STATS, STATS_TYPE_RADIO]);
+    serialInterface.write(cmd);
 }
 
 function sendGetStatsPackets(serialInterface: SerialPort): void {
-  const cmd = new Uint8Array([CMD_GET_STATS, STATS_TYPE_PACKETS]);
-  serialInterface.write(cmd);
+    const cmd = new Uint8Array([CMD_GET_STATS, STATS_TYPE_PACKETS]);
+    serialInterface.write(cmd);
 }
 ```
 
@@ -240,83 +238,83 @@ function sendGetStatsPackets(serialInterface: SerialPort): void {
 
 ```typescript
 interface StatsCore {
-  battery_mv: number;
-  uptime_secs: number;
-  errors: number;
-  queue_len: number;
+    battery_mv: number;
+    uptime_secs: number;
+    errors: number;
+    queue_len: number;
 }
 
 interface StatsRadio {
-  noise_floor: number;
-  last_rssi: number;
-  last_snr: number;
-  tx_air_secs: number;
-  rx_air_secs: number;
+    noise_floor: number;
+    last_rssi: number;
+    last_snr: number;
+    tx_air_secs: number;
+    rx_air_secs: number;
 }
 
 interface StatsPackets {
-  recv: number;
-  sent: number;
-  flood_tx: number;
-  direct_tx: number;
-  flood_rx: number;
-  direct_rx: number;
-  recv_errors?: number; // present when frame is 30 bytes
+    recv: number;
+    sent: number;
+    flood_tx: number;
+    direct_tx: number;
+    flood_rx: number;
+    direct_rx: number;
+    recv_errors?: number;  // present when frame is 30 bytes
 }
 
 function parseStatsCore(buffer: ArrayBuffer): StatsCore {
-  const view = new DataView(buffer);
-  const response_code = view.getUint8(0);
-  const stats_type = view.getUint8(1);
-  if (response_code !== 24 || stats_type !== 0) {
-    throw new Error("Invalid response type");
-  }
-  return {
-    battery_mv: view.getUint16(2, true),
-    uptime_secs: view.getUint32(4, true),
-    errors: view.getUint16(8, true),
-    queue_len: view.getUint8(10),
-  };
+    const view = new DataView(buffer);
+    const response_code = view.getUint8(0);
+    const stats_type = view.getUint8(1);
+    if (response_code !== 24 || stats_type !== 0) {
+        throw new Error('Invalid response type');
+    }
+    return {
+        battery_mv: view.getUint16(2, true),
+        uptime_secs: view.getUint32(4, true),
+        errors: view.getUint16(8, true),
+        queue_len: view.getUint8(10)
+    };
 }
 
 function parseStatsRadio(buffer: ArrayBuffer): StatsRadio {
-  const view = new DataView(buffer);
-  const response_code = view.getUint8(0);
-  const stats_type = view.getUint8(1);
-  if (response_code !== 24 || stats_type !== 1) {
-    throw new Error("Invalid response type");
-  }
-  return {
-    noise_floor: view.getInt16(2, true),
-    last_rssi: view.getInt8(4),
-    last_snr: view.getInt8(5) / 4.0, // Unscale SNR
-    tx_air_secs: view.getUint32(6, true),
-    rx_air_secs: view.getUint32(10, true),
-  };
+    const view = new DataView(buffer);
+    const response_code = view.getUint8(0);
+    const stats_type = view.getUint8(1);
+    if (response_code !== 24 || stats_type !== 1) {
+        throw new Error('Invalid response type');
+    }
+    return {
+        noise_floor: view.getInt16(2, true),
+        last_rssi: view.getInt8(4),
+        last_snr: view.getInt8(5) / 4.0,  // Unscale SNR
+        tx_air_secs: view.getUint32(6, true),
+        rx_air_secs: view.getUint32(10, true)
+    };
 }
 
 function parseStatsPackets(buffer: ArrayBuffer): StatsPackets {
-  const view = new DataView(buffer);
-  if (buffer.byteLength < 26) {
-    throw new Error("STATS_TYPE_PACKETS frame too short");
-  }
-  const response_code = view.getUint8(0);
-  const stats_type = view.getUint8(1);
-  if (response_code !== 24 || stats_type !== 2) {
-    throw new Error("Invalid response type");
-  }
-  const result: StatsPackets = {
-    recv: view.getUint32(2, true),
-    sent: view.getUint32(6, true),
-    flood_tx: view.getUint32(10, true),
-    direct_tx: view.getUint32(14, true),
-    flood_rx: view.getUint32(18, true),
-    direct_rx: view.getUint32(22, true),
-  };
-  if (buffer.byteLength >= 30) {
-    result.recv_errors = view.getUint32(26, true);
-  }
-  return result;
+    const view = new DataView(buffer);
+    if (buffer.byteLength < 26) {
+        throw new Error('STATS_TYPE_PACKETS frame too short');
+    }
+    const response_code = view.getUint8(0);
+    const stats_type = view.getUint8(1);
+    if (response_code !== 24 || stats_type !== 2) {
+        throw new Error('Invalid response type');
+    }
+    const result: StatsPackets = {
+        recv: view.getUint32(2, true),
+        sent: view.getUint32(6, true),
+        flood_tx: view.getUint32(10, true),
+        direct_tx: view.getUint32(14, true),
+        flood_rx: view.getUint32(18, true),
+        direct_rx: view.getUint32(22, true)
+    };
+    if (buffer.byteLength >= 30) {
+        result.recv_errors = view.getUint32(26, true);
+    }
+    return result;
 }
 ```
 
@@ -327,3 +325,4 @@ function parseStatsPackets(buffer: ArrayBuffer): StatsPackets {
 - Packet counters (uint32_t): May wrap after extended high-traffic operation.
 - Time fields (uint32_t): Max ~136 years.
 - SNR (int8_t, scaled by 4): Range -32 to +31.75 dB, 0.25 dB precision.
+

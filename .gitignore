@@ -16,6 +16,7 @@ cmake-*
 compile_commands.json
 .venv/
 venv/
+platformio.local.ini
 
 # serial_capture
 serial_capture.txt

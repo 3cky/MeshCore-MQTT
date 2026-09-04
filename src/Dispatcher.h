@@ -65,6 +65,8 @@ public:
 
   virtual void triggerNoiseFloorCalibrate(int threshold) { }
 
+  virtual void setCADEnabled(bool enable) { }
+
   virtual void resetAGC() { }
 
   virtual bool isInRecvMode() const = 0;
@@ -163,6 +165,7 @@ protected:
   virtual uint32_t getCADFailRetryDelay() const;
   virtual uint32_t getCADFailMaxDuration() const;
   virtual int getInterferenceThreshold() const { return 0; }    // disabled by default
+  virtual bool getCADEnabled() const { return false; }    // hardware CAD disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
 
 public:
@@ -189,8 +192,9 @@ public:
   bool millisHasNowPassed(unsigned long timestamp) const;
   unsigned long futureMillis(int millis_from_now) const;
 
-private:
   bool tryParsePacket(Packet* pkt, const uint8_t* raw, int len);
+
+private:
   void checkRecv();
   void checkSend();
 };

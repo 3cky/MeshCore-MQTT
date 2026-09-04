@@ -11,7 +11,7 @@ Standard KISS TNC firmware for MeshCore LoRa radios. Compatible with any KISS cl
 Standard KISS framing per the KA9Q/K3MC specification.
 
 | Byte   | Name  | Description                        |
-| ------ | ----- | ---------------------------------- |
+|--------|-------|------------------------------------|
 | `0xC0` | FEND  | Frame delimiter                    |
 | `0xDB` | FESC  | Escape character                   |
 | `0xDC` | TFEND | Escaped FEND (FESC + TFEND = 0xC0) |
@@ -29,7 +29,7 @@ Standard KISS framing per the KA9Q/K3MC specification.
 The type byte is split into two nibbles:
 
 | Bits | Field   | Description                         |
-| ---- | ------- | ----------------------------------- |
+|------|---------|-------------------------------------|
 | 7-4  | Port    | Port number (0 for single-port TNC) |
 | 3-0  | Command | Command number                      |
 
@@ -40,8 +40,8 @@ Maximum unescaped frame size: 512 bytes.
 ### Host to TNC
 
 | Command     | Value  | Data               | Description                                                 |
-| ----------- | ------ | ------------------ | ----------------------------------------------------------- |
-| Data        | `0x00` | Raw packet         | Queue packet for transmission                               |
+|-------------|--------|--------------------|-------------------------------------------------------------|
+| Data        | `0x00` | Raw packet         | Queue packet for transmission (one pending at a time)       |
 | TXDELAY     | `0x01` | Delay (1 byte)     | Transmitter keyup delay in 10ms units (default: 50 = 500ms) |
 | Persistence | `0x02` | P (1 byte)         | CSMA persistence parameter 0-255 (default: 63)              |
 | SlotTime    | `0x03` | Interval (1 byte)  | CSMA slot interval in 10ms units (default: 10 = 100ms)      |
@@ -53,10 +53,16 @@ Maximum unescaped frame size: 512 bytes.
 ### TNC to Host
 
 | Type | Value  | Data       | Description                |
-| ---- | ------ | ---------- | -------------------------- |
+|------|--------|------------|----------------------------|
 | Data | `0x00` | Raw packet | Received packet from radio |
 
 Data frames carry raw packet data only, with no metadata prepended. The Data command payload is limited to 255 bytes to match the MeshCore maximum transmission unit (MAX_TRANS_UNIT); frames larger than 255 bytes are silently dropped. The KISS specification recommends at least 1024 bytes for general-purpose TNCs; this modem is intended for MeshCore packets only, whose protocol MTU is 255 bytes.
+
+Only one packet may be pending for radio transmission at a time. If the host sends a second Data frame before the first has completed, the modem responds with Error (0xF1) and TxBusy (0x07).
+
+### Host Output Backpressure
+
+Outbound frames are encoded into a 2-slot queue and flushed when serial output space is available; `loop()` never blocks on writes. Radio TX state advances independently of host read speed. TxDone is retained until it can be queued. If the outbound queue is full, the modem responds with Error (0xF1) and TxBusy (0x07). Hosts should read serial promptly to avoid delayed responses.
 
 ### CSMA Behavior
 
@@ -85,7 +91,7 @@ MeshCore-specific functionality uses the standard KISS SetHardware command. The 
 ### Request Sub-commands (Host to TNC)
 
 | Sub-command     | Value  | Data                                     |
-| --------------- | ------ | ---------------------------------------- |
+|-----------------|--------|------------------------------------------|
 | GetIdentity     | `0x01` | -                                        |
 | GetRandom       | `0x02` | Length (1 byte, 1-64)                    |
 | VerifySignature | `0x03` | PubKey (32) + Signature (64) + Data      |
@@ -118,7 +124,7 @@ MeshCore-specific functionality uses the standard KISS SetHardware command. The 
 Response codes use the high-bit convention: `response = command | 0x80`. Generic and unsolicited responses use the `0xF0`+ range.
 
 | Sub-command  | Value  | Data                                    |
-| ------------ | ------ | --------------------------------------- |
+|--------------|--------|-----------------------------------------|
 | Identity     | `0x81` | PubKey (32)                             |
 | Random       | `0x82` | Random bytes (1-64)                     |
 | Verify       | `0x83` | Result (1): 0x00=invalid, 0x01=valid    |
@@ -149,21 +155,22 @@ Response codes use the high-bit convention: `response = command | 0x80`. Generic
 ### Error Codes
 
 | Code          | Value  | Description             |
-| ------------- | ------ | ----------------------- |
+|---------------|--------|-------------------------|
 | InvalidLength | `0x01` | Request data too short  |
 | InvalidParam  | `0x02` | Invalid parameter value |
 | NoCallback    | `0x03` | Feature not available   |
 | MacFailed     | `0x04` | MAC verification failed |
 | UnknownCmd    | `0x05` | Unknown sub-command     |
 | EncryptFailed | `0x06` | Encryption failed       |
+| TxBusy        | `0x07` | Radio TX busy, or host output queue full |
 
 ### Unsolicited Events
 
 The TNC sends these SetHardware frames without a preceding request:
 
-**TxDone (0xF8)**: Sent after a packet has been transmitted. Contains a single byte: 0x01 for success, 0x00 for failure.
+**TxDone (0xF8)**: Sent after radio transmission completes. Contains a single byte: 0x01 for success, 0x00 for failure. Delivery to the host may be delayed under serial backpressure but is not dropped.
 
-**RxMeta (0xF9)**: Sent immediately after each standard data frame (type 0x00) with metadata for the received packet. Contains SNR (1 byte, signed, value x4 for 0.25 dB precision) followed by RSSI (1 byte, signed, dBm). Enabled by default; can be toggled with SetSignalReport. Standard KISS clients ignore this frame.
+**RxMeta (0xF9)**: Sent after each standard data frame (type 0x00) with SNR (1 byte, signed, value x4) and RSSI (1 byte, signed, dBm). Queued with the data frame; omitted if the data frame cannot be queued. Enabled by default; toggle with SetSignalReport. Standard KISS clients ignore this frame.
 
 ## Data Formats
 
@@ -172,7 +179,7 @@ The TNC sends these SetHardware frames without a preceding request:
 All values little-endian.
 
 | Field     | Size    | Description             |
-| --------- | ------- | ----------------------- |
+|-----------|---------|-------------------------|
 | Frequency | 4 bytes | Hz (e.g., 869618000)    |
 | Bandwidth | 4 bytes | Hz (e.g., 62500)        |
 | SF        | 1 byte  | Spreading factor (5-12) |
@@ -181,15 +188,15 @@ All values little-endian.
 ### Version (Version response)
 
 | Field    | Size   | Description      |
-| -------- | ------ | ---------------- |
+|----------|--------|------------------|
 | Version  | 1 byte | Firmware version |
 | Reserved | 1 byte | Always 0         |
 
 ### Encrypted (Encrypted response)
 
-| Field      | Size     | Description                      |
-| ---------- | -------- | -------------------------------- |
-| MAC        | 2 bytes  | HMAC-SHA256 truncated to 2 bytes |
+| Field      | Size     | Description                                    |
+|------------|----------|------------------------------------------------|
+| MAC        | 2 bytes  | HMAC-SHA256 truncated to 2 bytes               |
 | Ciphertext | variable | AES-128 block-encrypted data with zero padding |
 
 ### Airtime (Airtime response)
@@ -197,7 +204,7 @@ All values little-endian.
 All values little-endian.
 
 | Field   | Size    | Description                                  |
-| ------- | ------- | -------------------------------------------- |
+|---------|---------|----------------------------------------------|
 | Airtime | 4 bytes | uint32_t, estimated air time in milliseconds |
 
 ### Noise Floor (NoiseFloor response)
@@ -205,7 +212,7 @@ All values little-endian.
 All values little-endian.
 
 | Field       | Size    | Description           |
-| ----------- | ------- | --------------------- |
+|-------------|---------|-----------------------|
 | Noise floor | 2 bytes | int16_t, dBm (signed) |
 
 The modem recalibrates the noise floor every 2 seconds with an AGC reset every 30 seconds.
@@ -215,7 +222,7 @@ The modem recalibrates the noise floor every 2 seconds with an AGC reset every 3
 All values little-endian.
 
 | Field  | Size    | Description         |
-| ------ | ------- | ------------------- |
+|--------|---------|---------------------|
 | RX     | 4 bytes | Packets received    |
 | TX     | 4 bytes | Packets transmitted |
 | Errors | 4 bytes | Receive errors      |
@@ -225,7 +232,7 @@ All values little-endian.
 All values little-endian.
 
 | Field      | Size    | Description                     |
-| ---------- | ------- | ------------------------------- |
+|------------|---------|---------------------------------|
 | Millivolts | 2 bytes | uint16_t, battery voltage in mV |
 
 ### MCU Temperature (MCUTemp response)
@@ -233,7 +240,7 @@ All values little-endian.
 All values little-endian.
 
 | Field       | Size    | Description                                |
-| ----------- | ------- | ------------------------------------------ |
+|-------------|---------|--------------------------------------------|
 | Temperature | 2 bytes | int16_t, tenths of °C (e.g., 253 = 25.3°C) |
 
 Returns `NoCallback` error if the board does not support temperature readings.
@@ -241,7 +248,7 @@ Returns `NoCallback` error if the board does not support temperature readings.
 ### Device Name (DeviceName response)
 
 | Field | Size     | Description                      |
-| ----- | -------- | -------------------------------- |
+|-------|----------|----------------------------------|
 | Name  | variable | UTF-8 string, no null terminator |
 
 ### Reboot
@@ -251,7 +258,7 @@ Sends an `OK` response, flushes serial, then reboots the device. The host should
 ### Sensor Permissions (GetSensors)
 
 | Bit | Value  | Description                            |
-| --- | ------ | -------------------------------------- |
+|-----|--------|----------------------------------------|
 | 0   | `0x01` | Base (battery)                         |
 | 1   | `0x02` | Location (GPS)                         |
 | 2   | `0x04` | Environment (temp, humidity, pressure) |
@@ -264,12 +271,12 @@ Data returned in CayenneLPP format. See [CayenneLPP documentation](https://docs.
 
 ## Cryptographic Algorithms
 
-| Operation                         | Algorithm                                            |
-| --------------------------------- | ---------------------------------------------------- |
-| Identity / Signing / Verification | Ed25519                                              |
-| Key Exchange                      | X25519 (ECDH)                                        |
+| Operation                         | Algorithm                                                                           |
+|-----------------------------------|-------------------------------------------------------------------------------------|
+| Identity / Signing / Verification | Ed25519                                                                             |
+| Key Exchange                      | X25519 (ECDH)                                                                       |
 | Encryption                        | AES-128 block encryption with zero padding + HMAC-SHA256 (MAC truncated to 2 bytes) |
-| Hashing                           | SHA-256                                              |
+| Hashing                           | SHA-256                                                                             |
 
 ## Notes
 
