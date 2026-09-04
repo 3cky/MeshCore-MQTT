@@ -102,7 +102,7 @@ static void _ftoa(float f, char *p, int *status)
     *p++ = '0';
   else 
   {
-    ltoa(int_part, p, 10);
+    sprintf(p, "%ld", (long)int_part);   // note: ltoa() is not available on all platforms
     while (*p)
       p++;
   }
